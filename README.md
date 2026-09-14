@@ -134,6 +134,32 @@ correctas frente a 0,561 en las 27 equivocadas. Es lo único observable en
 producción, porque el anverso no tiene forma de delatar una lectura
 errónea: no hay dígitos de control ni redundancia, a diferencia de la MRZ.
 
+### El enderezado de la MRZ — 90 imágenes (se añadieron dos giros al banco)
+
+| condición | sin enderezar | con enderezar |
+|---|---|---|
+| girada 3° | 1/10 exactas | **7/10** |
+| girada 6° | 0/10, y 10/10 **sin MRZ reconocible** | **7/10** |
+| limpia | 7/10 | 6/10 |
+| **total** | 47/90 | **59/90** |
+
+Existe porque pasar el pipeline por la mitad de calibración destapó un
+falso positivo grave: **una cédula legítima girada 3° daba los dígitos de
+la MRZ descuadrados y una contradicción en la fecha de nacimiento** — las
+mismas señales exactas que un fraude. Medido, la MRZ aguantaba hasta 2°.
+Las fotos reales de un documento sobre una mesa vienen torcidas por
+sistema.
+
+El coste está en la última fila y no se esconde: en imágenes rectas baja de
+7 a 6 sobre 10, porque el estimador prefiere 1° donde no hay ninguno.
+
+La primera versión del enderezado probaba ángulos hasta que los dígitos
+cuadraran, y **un test la tumbó en el acto**: sobre una MRZ con un dígito
+roto a propósito, el barrido encontraba un ángulo donde la lectura validaba
+y declaraba válido un documento manipulado. Era un corrector encubierto que
+elegía el resultado que le convenía. Ahora el ángulo se estima por
+geometría, sin mirar si valida.
+
 ### Decisiones del agente
 
 - **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,

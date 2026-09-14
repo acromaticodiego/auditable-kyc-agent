@@ -77,10 +77,19 @@ def test_un_nombre_largo_truncado_por_la_mrz_no_es_una_contradiccion():
     largo = person(
         surnames="ARANGO LOPEZ DE VILLAMIZAR", given_names="MARIA FERNANDA"
     )
-    front = fields(surnames="ARANGO LOPEZ DE VILLAMIZAR")
-    resultados = cross_check(front, parse_mrz(largo.mrz()))
+    mrz = parse_mrz(largo.mrz())
 
-    assert status_of(resultados, "surnames") is CrossStatus.MATCH
+    # Lo que se trunca son los nombres, no los apellidos: la linea se llena
+    # por la izquierda.  La primera version de este test miraba los
+    # apellidos, que caben enteros, y por eso pasaba en verde aunque la
+    # comparacion exigiera igualdad exacta.
+    assert mrz.surnames == "ARANGO LOPEZ DE VILLAMIZAR"
+    assert mrz.given_names != "MARIA FERNANDA"
+    assert len(mrz.given_names) < len("MARIA FERNANDA")
+
+    resultados = cross_check(fields(given_names="MARIA FERNANDA"), mrz)
+
+    assert status_of(resultados, "given_names") is CrossStatus.MATCH
 
 
 def test_la_vigencia_se_decide_con_la_fecha_de_la_mrz():
@@ -148,6 +157,30 @@ def test_los_identificadores_de_senal_no_se_repiten():
 
     identificadores = [s.id for s in senales]
     assert len(set(identificadores)) == len(identificadores)
+
+
+@pytest.mark.parametrize("grados", [3.0, 4.0, 5.0])
+def test_una_cedula_torcida_no_parece_manipulada(grados):
+    """El falso positivo que destapo pasar el pipeline por la calibracion.
+
+    Una cedula legitima girada tres grados daba los digitos de la MRZ
+    descuadrados y una contradiccion en la fecha de nacimiento: exactamente
+    las mismas senales que un fraude.  Las fotos reales de un documento
+    sobre una mesa vienen torcidas por sistema, asi que sin enderezar el
+    sistema marcaria como sospechoso a casi todo el mundo.
+    """
+    from app.synthetic.cedula import render_back, render_front
+    from app.synthetic.degradation import rotate
+
+    datos = person()
+    senales = build_signals(
+        rotate(render_front(datos), grados),
+        rotate(render_back(datos), grados),
+        today=TODAY,
+    )
+
+    assert senales.get("mrz.checks_ok").value is True
+    assert contradictions(senales) == []
 
 
 @pytest.mark.parametrize(
