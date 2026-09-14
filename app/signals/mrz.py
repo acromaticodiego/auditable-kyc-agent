@@ -169,7 +169,7 @@ def parse_mrz_date(raw: str, *, prefer_past: bool, today: date | None = None) ->
     # Ninguna encaja con la preferencia: se devuelve la mas plausible, para
     # que un documento ya caducado siga siendo legible en vez de quedarse
     # sin fecha justo en el caso que hay que rechazar.
-    return max(candidates) if prefer_past else max(candidates)
+    return max(candidates)
 
 
 def parse_mrz(lines: list[str] | str) -> MrzData:
