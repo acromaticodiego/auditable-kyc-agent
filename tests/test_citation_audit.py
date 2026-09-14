@@ -179,6 +179,18 @@ def test_citar_una_senal_sin_decir_cuanto_valia_cuenta_como_invalida():
     assert report.invalid[0].status is CitationStatus.MISSING_CITED_VALUE
 
 
+def test_un_nombre_distinto_del_leido_es_invalido():
+    """El caso negativo del texto: sin el, la comparacion de cadenas podia
+    devolver True siempre y ningun test se enteraba."""
+    report = audit_citations(
+        decide(ground("ocr.full_name", "JUAN DIEGO OSSA RESTREPO")),
+        build_signals(),
+    )
+
+    assert not report.faithful
+    assert report.invalid[0].status is CitationStatus.VALUE_MISMATCH
+
+
 def test_un_contador_se_compara_exacto():
     report = audit_citations(
         decide(ground("quality.blur_regions", 3)),
@@ -200,11 +212,19 @@ def test_una_bandera_invertida_es_invalida():
 # --- El contrato de la decision --------------------------------------------
 
 
-def test_una_decision_sin_fundamentos_no_es_valida():
-    """Sin este minimo, no citar nada daria fidelidad perfecta."""
+@pytest.mark.parametrize("kind", list(DecisionKind))
+def test_una_decision_sin_fundamentos_no_es_valida(kind: DecisionKind):
+    """Sin este minimo, no citar nada daria fidelidad perfecta.
+
+    Se recorren las cuatro decisiones a proposito.  La primera version de
+    este test solo probaba APPROVE y pasaba en verde con el minimo
+    quitado, porque aprobar es la unica decision que el validador de
+    coherencia rechaza por si solo cuando la lista viene vacia: rechazar,
+    escalar y pedir reenvio se colaban sin un solo fundamento.
+    """
     with pytest.raises(ValidationError):
         AgentDecision(
-            decision=DecisionKind.APPROVE,
+            decision=kind,
             groundings=[],
             summary="Resumen de prueba suficientemente largo.",
         )

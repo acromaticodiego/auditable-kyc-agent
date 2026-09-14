@@ -46,6 +46,9 @@ lo que se descartó y por qué.
 - [ADR-0001](docs/adr/0001-presupuesto-de-peticiones-del-agente.md) — por
   qué las señales baratas se precalculan y solo las caras son herramientas
   del agente.
+- [ADR-0002](docs/adr/0002-explicacion-auditable.md) — por qué la
+  explicación cita señales con su valor y esas citas se verifican, en vez
+  de ser prosa que hay que creerse.
 
 ## Métricas
 
