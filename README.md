@@ -6,9 +6,10 @@ reenvío**, razonando sobre varias señales a la vez y explicando la decisión
 con fundamentos que citan la señal concreta que los sostiene.
 
 > **Estado: en construcción.** Funcionan el contrato de decisión, la
-> verificación de citas y el cliente del modelo con caché y presupuesto.
-> No hay todavía OCR, ni reconocimiento facial, ni endpoint de
-> verificación: las señales se construyen a mano para probar el agente.
+> verificación de citas, el cliente del modelo con caché y presupuesto, la
+> lectura de la MRZ, el generador de cédulas sintéticas y un catálogo de
+> 18 casos etiquetados. Falta lo que los une: OCR, reconocimiento facial y
+> el endpoint de verificación.
 
 ## La idea
 
@@ -87,6 +88,25 @@ Con honestidad sobre el tamaño de muestra, que por ahora es diminuto:
 - **Un 503 de sobrecarga consume cupo.** Doce peticiones fallidas en dos
   minutos agotaron el día entero sin producir una decisión. Ver ADR-0001.
 
+## El conjunto de evaluación
+
+18 casos con la decisión correcta anotada y **el motivo escrito para poder
+discutirse**: 4 legítimos, 6 manipulados, 2 caducados y 6 de captura mala.
+Cada uno declara tres cosas distintas que es tentador mezclar: qué debería
+decidir el sistema *con la información que tiene*, si el documento es falso
+de verdad, y si esa falsedad deja algún rastro visible.
+
+De ahí `fraude-coherente-indetectable`: un documento falso cuya MRZ se
+recalculó entera. **Su decisión correcta es aprobarlo**, porque nada en él
+permite saberlo. Está en el conjunto para medir el techo del sistema en vez
+de esconderlo; un conjunto donde todos los fraudes se detectan mide ese
+techo y lo llama acierto.
+
+La partición en calibración y reservado **la impone la herramienta**: pedir
+el reservado sin declarar que es la medición final lanza `HoldoutLocked`.
+Mirarlo una vez «para ver cómo va» no deja rastro, así que no puede
+depender de acordarse.
+
 ## Limitaciones
 
 Esta sección crecerá conforme haya resultados que la llenen. Hoy:
@@ -102,5 +122,13 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   para encontrar uno que respondiera.
 - El contador de presupuesto empezó a existir después de haberse gastado
   el cupo del primer día, así que esa cuenta se sembró a mano.
+- Los 18 casos son variantes de **una sola identidad sintética**, sin una
+  foto real de por medio. Ninguna medida hecha sobre ellos dice nada sobre
+  documentos reales.
+- La partición quedó desbalanceada: 2 fraudes en calibración y 4 en el
+  reservado. Con 18 casos el hash no reparte fino; se corregirá creciendo
+  el catálogo, no tocando la partición.
+- El retrato es un marcador, no una cara. Hasta que haya fotos reales, la
+  similitud facial no existe como señal.
 - La API rechaza modelos que su propio `ListModels` sigue listando, de
   modo que elegir modelo automáticamente no es fiable.
