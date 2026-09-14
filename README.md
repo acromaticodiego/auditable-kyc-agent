@@ -167,8 +167,19 @@ mirando **solo la mitad de calibración**:
 
 | | aciertos | explicaciones fieles |
 |---|---|---|
-| calibración (9 casos) | 9/9 | 9/9 |
-| **reservado (9 casos)** | **8/9** | 9/9 |
+| calibración (12 casos) | 9/12 | 12/12 |
+| **reservado (13 casos)** | **10/13** | 13/13 |
+
+Con la primera versión del conjunto —18 casos— la línea base sacaba 8/9 en
+el reservado. **Ese resultado no era una buena noticia**: significaba que
+las señales deterministas resolvían casi todo el conjunto ellas solas, y
+que comparar el agente contra ellas no iba a informar de nada. Así que el
+paso siguiente no fue construir el agente, sino **ampliar el conjunto con
+siete casos que las reglas no pueden resolver**.
+
+Donde falla ahora la línea base es justo donde hace falta juicio: pide otra
+foto por un reflejo que no tapa ningún campo, y rechaza de plano una
+discrepancia de un solo carácter en el sexo que igual es un fallo del OCR.
 
 El de la izquierda está inflado por construcción: los cortes se eligieron
 sobre esos mismos casos. **El de la derecha es la medida.**
@@ -180,13 +191,10 @@ fecha sigue leyéndose. No se han tocado los umbrales para arreglarlo — el
 reservado queda quemado, y ajustarlo ahora convertiría la próxima medición
 en otro número elegido sobre sus propios datos.
 
-**Lo importante de este 8/9 no es que sea alto, es lo que implica:** las
-señales deterministas resuelven casi todo el conjunto ellas solas. Si el
-agente saca 8/9 o 9/9, con esta muestra **no se podrá afirmar que aporte
-nada**. La comparación, tal y como está el conjunto hoy, no tiene margen
-para informar. Eso es un problema del conjunto de evaluación —18 casos
-derivados de una sola identidad, con pocos genuinamente ambiguos— y no un
-mérito del agente ni de las reglas.
+El único fallo que viene de la primera versión del conjunto sigue siendo
+`caducado-y-borroso`. Los umbrales **no se han tocado** para arreglar
+ninguno de los tres: ajustarlos mirando el reservado convertiría la
+siguiente medición en otro número elegido sobre sus propios datos.
 
 La línea base cita señales y pasa por el mismo verificador que el agente.
 Si pudiera explicarse sin citar nada verificable, la comparación sería
@@ -211,8 +219,8 @@ injusta a su favor.
 
 ## El conjunto de evaluación
 
-18 casos con la decisión correcta anotada y **el motivo escrito para poder
-discutirse**: 4 legítimos, 6 manipulados, 2 caducados y 6 de captura mala.
+25 casos con la decisión correcta anotada y **el motivo escrito para poder
+discutirse**: 4 legítimos, 6 manipulados, 2 caducados, 6 de captura mala y 7 elegidos por lo que las reglas fijas no saben resolver.
 Cada uno declara tres cosas distintas que es tentador mezclar: qué debería
 decidir el sistema *con la información que tiene*, si el documento es falso
 de verdad, y si esa falsedad deja algún rastro visible.
@@ -243,9 +251,11 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   para encontrar uno que respondiera.
 - El contador de presupuesto empezó a existir después de haberse gastado
   el cupo del primer día, así que esa cuenta se sembró a mano.
-- Los 18 casos son variantes de **una sola identidad sintética**, sin una
+- Los 25 casos son variantes de **una sola identidad sintética**, sin una
   foto real de por medio. Ninguna medida hecha sobre ellos dice nada sobre
   documentos reales.
+- El conjunto vivió 18 casos **sin un solo caso de escalado a revisión
+  humana**, midiendo un sistema de tres salidas y llamándolo de cuatro.
 - La partición quedó desbalanceada: 2 fraudes en calibración y 4 en el
   reservado. Con 18 casos el hash no reparte fino; se corregirá creciendo
   el catálogo, no tocando la partición.
