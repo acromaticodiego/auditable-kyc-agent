@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.agent.budget import RequestBudget
+from app.agent.budget import RequestBudget, account_fingerprint
 from app.agent.cache import ResponseCache
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -79,7 +79,7 @@ class GeminiClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
-        self.budget = budget or RequestBudget()
+        self.budget = budget or RequestBudget(account=account_fingerprint(api_key))
         # Inyectables para poder probar el manejo de errores de la API
         # (cupo agotado, sobrecarga, corte) sin gastar peticiones reales
         # ni esperar de verdad a que pase el retroceso.

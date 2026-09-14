@@ -85,9 +85,17 @@ cambios: el reintento por defecto baja de dos a uno, el sistema lleva un
 presupuesto propio persistido en disco, y ese presupuesto **anota el
 intento antes de lanzarlo**, no el éxito al recibirlo.
 
-**El límite de 20 es diario, no por minuto.** El 429 sugiere lo contrario
-(«retry in 10.6s»), pero tras 140 segundos de espera seguía rechazando. El
-cuerpo del error lo confirma: `limit: 20, model: gemini-3.5-flash`.
+**El límite de 20 es diario, no por minuto, y va por proyecto.** El 429
+sugiere lo contrario («retry in 10.6s»), pero tras 140 segundos de espera
+seguía rechazando. El cuerpo del error lo identifica sin ambigüedad:
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, con `quotaValue: 20`.
+
+Eso tiene una consecuencia práctica que costó descubrir: **crear una clave
+nueva dentro del mismo proyecto no concede cupo nuevo**. Lo que sí lo
+concede es cambiar de modelo, porque el cupo se cuenta por modelo dentro
+del proyecto. El contador local reparte por clave —lo único observable
+desde el cliente, ya que el proyecto no viaja en la credencial— y por tanto
+es optimista cuando dos claves comparten proyecto.
 
 **El modelo por defecto no siempre existe para una cuenta nueva.**
 `gemini-2.5-flash` devolvió 404 con el mensaje de que ya no está disponible

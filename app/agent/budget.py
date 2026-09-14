@@ -8,7 +8,16 @@ haber obtenido una sola decision util.
 
 Por eso el conteo:
 
-- se lleva por modelo, porque el cupo es por modelo;
+- se lleva por modelo y por clave.  Cuidado con el matiz: el cuerpo del
+  429 identifica el cupo como
+  `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, es decir **por
+  proyecto**, no por clave.  Dos claves del mismo proyecto de Google
+  comparten cupo, y este contador les dara cuentas separadas: en ese caso
+  es OPTIMISTA y el 429 llegara antes de lo que diga.  Se reparte por
+  clave igualmente porque es lo unico observable desde aqui -- el proyecto
+  no viaja en la credencial -- y porque distinguir proyectos distintos
+  (que si tienen cupos distintos) vale mas que el error en el otro
+  sentido;
 - se persiste en disco, porque el cupo es diario y el proceso no vive
   tanto;
 - cuenta el INTENTO, no el exito, que es justo lo que descubrio el
@@ -17,9 +26,23 @@ Por eso el conteo:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, date, datetime
 from pathlib import Path
+
+
+def account_fingerprint(api_key: str) -> str:
+    """Identifica la clave sin guardarla.
+
+    El conteo se reparte por cuenta, asi que hay que distinguir una clave
+    de otra en un fichero que vive en disco.  Se guarda un hash corto: basta
+    para separar cuentas y no deja la credencial escrita en ningun sitio.
+
+    No identifica el proyecto, que es la unidad real del cupo; ver la nota
+    de la cabecera del modulo."
+    """
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
 
 
 class BudgetExhausted(RuntimeError):
@@ -37,10 +60,15 @@ class RequestBudget:
         path: Path | str = ".llm_cache/budget.json",
         daily_limit: int | None = 20,
         today: date | None = None,
+        account: str = "sin-clave",
     ) -> None:
         self.path = Path(path)
         self.daily_limit = daily_limit
         self._today = today
+        self.account = account
+
+    def _slot(self, model: str) -> str:
+        return f"{self.account}:{model}"
 
     @property
     def today(self) -> str:
@@ -58,7 +86,7 @@ class RequestBudget:
         return data if isinstance(data, dict) else {}
 
     def spent(self, model: str) -> int:
-        return self._load().get(self.today, {}).get(model, 0)
+        return self._load().get(self.today, {}).get(self._slot(model), 0)
 
     def remaining(self, model: str) -> int | None:
         if self.daily_limit is None:
@@ -82,7 +110,8 @@ class RequestBudget:
         """
         data = self._load()
         day = data.setdefault(self.today, {})
-        day[model] = day.get(model, 0) + 1
+        slot = self._slot(model)
+        day[slot] = day.get(slot, 0) + 1
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(data, indent=2, sort_keys=True), encoding="utf-8"

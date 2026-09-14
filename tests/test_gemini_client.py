@@ -9,7 +9,11 @@ solo lo contesta una llamada real (scripts/probe_gemini.py).
 import httpx
 import pytest
 
-from app.agent.budget import BudgetExhausted, RequestBudget
+from app.agent.budget import (
+    BudgetExhausted,
+    RequestBudget,
+    account_fingerprint,
+)
 from app.agent.cache import ResponseCache
 from app.agent.gemini import (
     GeminiClient,
@@ -371,3 +375,32 @@ def test_el_cupo_se_lleva_por_modelo(tmp_path):
     budget.record("gemini-uno")
 
     assert (budget.spent("gemini-uno"), budget.spent("gemini-dos")) == (1, 0)
+
+
+def test_dos_claves_distintas_no_comparten_cuenta(tmp_path):
+    """El cupo es por modelo dentro de cada proyecto de Google, asi que
+    cambiar de clave concede una cuenta nueva.  Si el contador no lo
+    reflejara, habria que borrarlo a mano cada vez y dejaria de servir."""
+    path = tmp_path / "budget.json"
+    vieja = RequestBudget(path, account="aaaaaaaaaaaa")
+    for _ in range(20):
+        vieja.record("gemini-test")
+
+    nueva = RequestBudget(path, account="bbbbbbbbbbbb")
+
+    assert vieja.remaining("gemini-test") == 0
+    assert nueva.remaining("gemini-test") == 20
+    nueva.ensure_available("gemini-test")
+
+
+def test_la_huella_de_la_clave_no_contiene_la_clave(tmp_path):
+    """El conteo vive en disco; la credencial no puede acabar ahi."""
+    clave = "AQ.clave-secreta-que-no-debe-aparecer"
+    huella = account_fingerprint(clave)
+
+    RequestBudget(tmp_path / "budget.json", account=huella).record("gemini-test")
+    contenido = (tmp_path / "budget.json").read_text(encoding="utf-8")
+
+    assert clave not in contenido
+    assert "clave-secreta" not in contenido
+    assert huella in contenido
