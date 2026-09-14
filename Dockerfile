@@ -10,7 +10,7 @@ WORKDIR /srv
 # TrueType, Pillow cae a un mapa de bits diminuto y las cedulas sinteticas
 # saldrian con un texto que ningun OCR podria leer, con lo que el conjunto
 # de evaluacion no mediria el OCR sino el renderizador.
-RUN apt-get update     && apt-get install -y --no-install-recommends fonts-dejavu-core     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update     && apt-get install -y --no-install-recommends         fonts-dejavu-core         tesseract-ocr         tesseract-ocr-spa     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
