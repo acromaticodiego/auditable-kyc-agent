@@ -1,0 +1,99 @@
+# ADR-0002: La explicación del agente cita señales con su valor, y las citas se verifican
+
+- **Fecha:** 2026-09-14
+- **Estado:** aceptada
+
+## Contexto
+
+Un modelo de lenguaje explica sus decisiones con enorme soltura. Ese es el
+problema. La explicación de un rechazo de KYC es un documento con
+consecuencias: puede acabar ante un regulador o ante la persona a la que
+se le negó una cuenta. Un párrafo bien escrito que atribuya a la
+verificación un dato que nunca se midió es **peor que no dar explicación
+alguna**, porque parece auditado y no lo está.
+
+La pregunta que hace cualquiera en banca ante un sistema así es siempre la
+misma: *¿y si el modelo se inventa la razón?* Sin una respuesta medible,
+el proyecto entero se apoya en la buena fe.
+
+## Decisión
+
+El agente devuelve una estructura, no texto libre. Cada fundamento lleva
+**el identificador de una señal y el valor que el agente le atribuye**:
+
+```json
+{ "signal_id": "facial.similarity", "cited_value": 0.61,
+  "weight": "against",
+  "text": "La similitud facial queda en tierra de nadie." }
+```
+
+Después de cada decisión, `audit_citations` contrasta cada cita con el
+valor real de la señal y clasifica el resultado en uno de cinco estados:
+válida, señal inexistente, señal que no se pudo calcular, valor que no
+coincide, o cita sin valor. Una decisión es **fiel** si ninguna de sus
+citas es inválida.
+
+Tres detalles del diseño no son cosméticos:
+
+**Citar sin valor cuenta como cita inválida.** Si dejar `cited_value` en
+nulo saliera gratis, la estrategia segura para el modelo sería no citar
+valores nunca, y la métrica dejaría de medir. La regla existe por el
+incentivo que crea, no por el caso en sí.
+
+**La decisión exige al menos un fundamento, y en la dirección correcta.**
+Sin el mínimo, una decisión sin fundamentos tendría fidelidad perfecta por
+vacuidad. Aprobar exige algún fundamento a favor; rechazar, escalar o
+pedir reenvío exigen al menos uno en contra o no concluyente.
+
+**La tolerancia numérica es 0,011 y esa cifra decide la métrica.** Los
+modelos citan los scores con dos decimales y algunos truncan en vez de
+redondear, lo que produce diferencias de hasta 0,0099 que no son errores.
+Relajar la tolerancia infla la fidelidad hasta volverla trivial: por eso
+va acompañada de un test de frontera que comprueba que 0,012 sigue
+fallando.
+
+## Alternativas descartadas
+
+**Prosa libre y confiar.** Es lo que hace casi todo el mundo. Descartada
+porque no produce ningún número, y este proyecto se juzga por números.
+
+**Pedirle al modelo una puntuación de confianza.** Es un autoinforme: el
+modelo que se inventa un dato se inventa igual de bien la confianza con
+que lo afirma. No verifica nada, solo añade una cifra tranquilizadora.
+
+**Un segundo modelo que juzgue la explicación del primero.** Popular, y
+descartada por dos motivos: duplica el consumo del cupo (ver ADR-0001) y
+el juez alucina como el juzgado, así que sustituye una creencia por otra
+en vez de dar una comprobación dura. La verificación de citas es
+determinista y cuesta cero peticiones.
+
+**Eliminar la prosa y generar la explicación con plantillas.** Sería
+perfectamente auditable y perfectamente inútil: equivale a volver al árbol
+de reglas y perder lo único que aporta el agente, que es articular por qué
+dos señales en conflicto se resuelven de una manera y no de otra.
+
+**Exigir coherencia estricta entre los pesos y la decisión.** Tentador:
+prohibir que se apruebe si hay algún fundamento en contra. Descartado
+porque decidir *a pesar de* una señal adversa es legítimo y es justo lo
+que interesa poder leer después. Solo se valida que exista al menos un
+fundamento en la dirección de la decisión.
+
+## Consecuencias
+
+- Aparece la primera métrica del proyecto: **fidelidad de las citas**, que
+  se calcula sobre cualquier decisión guardada, sin etiquetado humano y
+  sin gastar cupo.
+- **Esto no mide si el razonamiento es correcto.** Un agente puede citar
+  todos los valores con exactitud y aun así sacar una conclusión
+  disparatada. La fidelidad de las citas acota la invención de datos, no
+  la calidad del juicio; para eso está la comparación contra la línea base
+  de reglas fijas. Presentarla como si midiera lo segundo sería exactamente
+  el tipo de número engañoso que este proyecto quiere evitar.
+- Los identificadores de señal pasan a ser una interfaz pública. Renombrar
+  `facial.similarity` invalida las citas de todas las decisiones ya
+  guardadas.
+- El test de frontera de la tolerancia encontró que la comparación en coma
+  flotante era impredecible justo en el límite: `0.700 - 0.689` da
+  `0.011000000000000010`, que quedaba fuera de una tolerancia de `0.011`
+  por representación binaria, no por discrepancia real. Se añadió un
+  margen de `1e-9`.

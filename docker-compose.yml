@@ -31,8 +31,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Recarga en caliente durante el desarrollo.
+      # Recarga en caliente durante el desarrollo.  Los tests van montados
+      # tambien: sin esto, `docker compose exec api pytest` ejecuta la copia
+      # que quedo dentro de la imagen y un fichero de tests nuevo no aparece,
+      # lo que se lee como "todo sigue pasando" cuando en realidad no se ha
+      # ejecutado nada de lo nuevo.
       - ./app:/srv/app:ro
+      - ./tests:/srv/tests:ro
+      - ./pytest.ini:/srv/pytest.ini:ro
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
