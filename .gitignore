@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+
+# Imagenes reales de documentos: nunca entran al repositorio.
+# El conjunto de evaluacion solo puede contener casos sinteticos.
+data/real/
+*.jpg
+*.jpeg
+*.png
+!evaluation/cases/**/*.png
+!docs/**/*.png
+
+# Cache de respuestas del LLM: es local y volatil, no es fuente de verdad.
+.llm_cache/

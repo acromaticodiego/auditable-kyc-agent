@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kyc
+      POSTGRES_PASSWORD: kyc
+      POSTGRES_DB: kyc
+    # El puerto externo es 5434 a proposito: 5432 y 5433 ya estan ocupados por
+    # otro proyecto en esta misma maquina (detector-postgres ocupa el 5433) y el choque no da un error claro.
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kyc -d kyc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # connect_timeout evita que la sonda de salud se quede colgada
+      # cuando la base de datos esta caida en vez de responder 503.
+      DATABASE_URL: postgresql+psycopg://kyc:kyc@db:5432/kyc?connect_timeout=3
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Recarga en caliente durante el desarrollo.
+      - ./app:/srv/app:ro
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+volumes:
+  pgdata:
