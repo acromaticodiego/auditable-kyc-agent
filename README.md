@@ -71,7 +71,36 @@ mismos datos.
 
 ## Lo que se ha medido hasta ahora
 
-Con honestidad sobre el tamaño de muestra, que por ahora es diminuto:
+Con honestidad sobre el tamaño de muestra, que por ahora es pequeño:
+
+### Lectura de la MRZ — 70 imágenes (10 identidades × 7 condiciones)
+
+| | primera versión | tras corregir |
+|---|---|---|
+| lecturas exactas | 1/70 | **46/70** |
+| los cuatro dígitos cuadran | 53/70 | 53/70 |
+| **cuadran sobre una lectura errónea** | **52/70** | **7/70** |
+| sin MRZ legible | 4/70 | 4/70 |
+
+El número que importa es el tercero. De las 53 lecturas que la aritmética
+daba por buenas, **52 estaban mal**: el 98 % de las validaciones eran
+falsas. La causa era casi siempre un `COL` leído `C0L`, y el motivo de que
+pasara inadvertido es estructural: **el país emisor, el sexo, la
+nacionalidad y la línea entera de nombres quedan fuera del payload de los
+cuatro dígitos de control.** Es el punto ciego del formato TD1.
+
+Corregir esos campos es seguro precisamente porque no participan en ningún
+check: una corrección ahí no puede fabricar validez aritmética. Los 7
+falsos válidos que quedan están casi todos en la línea de nombres, y ahí no
+se corrige nada porque no hay ninguna regla estructural que lo permita sin
+inventar.
+
+Advertencias sobre estas cifras: son cédulas sintéticas rectificadas, sin
+una sola foto real. Y un detalle que delata lo artificial del banco: un
+desenfoque leve (9/10) **lee mejor que la imagen limpia** (7/10), porque
+suaviza el aliasing del renderizado. Eso no pasa con documentos de verdad.
+
+### Decisiones del agente
 
 - **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,
   una petición cada uno. Los 3 respetaron el esquema de respuesta y

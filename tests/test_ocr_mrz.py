@@ -105,6 +105,26 @@ def test_la_nacionalidad_leida_con_un_cero_se_corrige():
     assert parse_mrz(corregidas).checks_ok
 
 
+def test_la_nacionalidad_con_dos_errores_necesita_las_dos_reglas():
+    """Las dos correcciones del codigo de pais no son redundantes.
+
+    Con un solo error ('C0L') cualquiera de las dos lo arregla. Con dos
+    ('C0I') hacen falta las dos: primero la regla de campos alfabeticos
+    convierte el 0 en O, y solo entonces queda a un caracter de 'COL' para
+    que actue la regla de distancia. Sin la primera, la segunda ve una
+    distancia de dos y no toca nada.
+
+    Corregir dos errores aqui sigue siendo seguro: la nacionalidad no entra
+    en el payload de ningun digito de control, asi que ninguna correccion
+    puede fabricar una validez aritmetica.
+    """
+    lineas = person().mrz()
+    con_dos_errores = list(lineas)
+    con_dos_errores[1] = con_dos_errores[1][:15] + "C0I" + con_dos_errores[1][18:]
+
+    assert _fix_alpha_fields(con_dos_errores)[1][15:18] == "COL"
+
+
 def test_una_letra_en_una_fecha_se_corrige_a_cifra():
     """Una letra en una fecha es siempre un fallo de lectura y nunca una
     manipulacion: quien edita una MRZ para falsificar escribe cifras."""
