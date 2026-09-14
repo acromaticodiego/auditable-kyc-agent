@@ -144,24 +144,32 @@ def parse_mrz_date(raw: str, *, prefer_past: bool, today: date | None = None) ->
     today = today or date.today()
     year_short, month, day = int(raw[:2]), int(raw[2:4]), int(raw[4:6])
 
+    candidates: list[date] = []
     for century in (1900, 2000):
         try:
-            candidate = date(century + year_short, month, day)
+            candidates.append(date(century + year_short, month, day))
         except ValueError:
             continue
-        if prefer_past and candidate <= today:
-            return candidate
-        if not prefer_past and candidate >= today:
-            return candidate
+    if not candidates:
+        return None
 
-    # Ninguna de las dos encaja con la preferencia: se devuelve la que
-    # exista, para que un documento caducado siga siendo legible.
-    for century in (2000, 1900):
-        try:
-            return date(century + year_short, month, day)
-        except ValueError:
-            continue
-    return None
+    # No basta con quedarse con el primer siglo que cumpla la condicion:
+    # para '04' las dos opciones (1904 y 2004) son pasado, y la buena es la
+    # reciente.  Hay que elegir la MAS reciente de las pasadas cuando es un
+    # nacimiento, y la MAS proxima de las futuras cuando es una expiracion.
+    if prefer_past:
+        pasadas = [candidate for candidate in candidates if candidate <= today]
+        if pasadas:
+            return max(pasadas)
+    else:
+        futuras = [candidate for candidate in candidates if candidate >= today]
+        if futuras:
+            return min(futuras)
+
+    # Ninguna encaja con la preferencia: se devuelve la mas plausible, para
+    # que un documento ya caducado siga siendo legible en vez de quedarse
+    # sin fecha justo en el caso que hay que rechazar.
+    return max(candidates) if prefer_past else max(candidates)
 
 
 def parse_mrz(lines: list[str] | str) -> MrzData:

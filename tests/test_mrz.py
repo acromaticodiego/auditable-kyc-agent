@@ -170,3 +170,22 @@ def test_las_letras_valen_de_10_a_35_aunque_el_digito_no_lo_note():
 def test_un_caracter_imposible_en_una_mrz_se_rechaza():
     with pytest.raises(MrzError, match="caracter no valido"):
         character_value("ñ")
+
+
+@pytest.mark.parametrize(
+    ("raw", "prefer_past", "esperado"),
+    [
+        # Las dos opciones son pasado y la buena es la reciente.  Con la
+        # primera version esto daba 1904: el generador de cedulas lo
+        # destapo al construir una persona nacida en 2004.
+        ("040415", True, date(2004, 4, 15)),
+        ("980114", True, date(1998, 1, 14)),
+        # Las dos son futuro imposible como nacimiento; gana la unica pasada.
+        ("360108", True, date(1936, 1, 8)),
+        # Como expiracion, la mas proxima de las futuras.
+        ("320419", False, date(2032, 4, 19)),
+        ("360108", False, date(2036, 1, 8)),
+    ],
+)
+def test_el_siglo_se_elige_por_cercania_no_por_orden(raw, prefer_past, esperado):
+    assert parse_mrz_date(raw, prefer_past=prefer_past, today=date(2026, 9, 14)) == esperado

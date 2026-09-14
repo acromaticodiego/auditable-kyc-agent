@@ -50,6 +50,8 @@ lo que se descartó y por qué.
 - [ADR-0002](docs/adr/0002-explicacion-auditable.md) — por qué la
   explicación cita señales con su valor y esas citas se verifican, en vez
   de ser prosa que hay que creerse.
+- [ADR-0003](docs/adr/0003-la-mrz-como-senal-dura.md) — por qué se lee la
+  MRZ del reverso, qué detecta de verdad y qué no.
 
 ## Métricas
 

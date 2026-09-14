@@ -44,6 +44,9 @@ services:
       # recrearlo tiraria las respuestas guardadas y habria que volver a
       # gastar cupo para recuperarlas.
       - ./.llm_cache:/srv/.llm_cache
+      # Las imagenes generadas y las reales viven en el anfitrion.  data/real
+      # esta en .gitignore y no entra nunca al repositorio.
+      - ./data:/srv/data
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
