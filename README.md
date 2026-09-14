@@ -5,9 +5,10 @@ Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
 con fundamentos que citan la señal concreta que los sostiene.
 
-> **Estado: en construcción.** Ahora mismo solo está el esqueleto: API,
-> base de datos y sonda de salud. Lo que sigue no describe todavía nada
-> que funcione, sino hacia dónde va.
+> **Estado: en construcción.** Funcionan el contrato de decisión, la
+> verificación de citas y el cliente del modelo con caché y presupuesto.
+> No hay todavía OCR, ni reconocimiento facial, ni endpoint de
+> verificación: las señales se construyen a mano para probar el agente.
 
 ## La idea
 
@@ -65,13 +66,34 @@ mitad no se toca hasta la medición final. Cualquier cifra publicada aquí
 irá acompañada del tamaño de muestra y de si el corte se eligió sobre esos
 mismos datos.
 
+## Lo que se ha medido hasta ahora
+
+Con honestidad sobre el tamaño de muestra, que por ahora es diminuto:
+
+- **2 casos ejecutados contra la API real** (`gemini-3.5-flash`). En los
+  dos, el modelo respetó el esquema de respuesta y la decisión fue la
+  razonable. Dos casos no permiten afirmar nada sobre fiabilidad; solo
+  descartan que el enfoque sea inviable.
+- **Una de esas 2 decisiones destapó un fallo del verificador, no del
+  modelo.** Citó la ausencia de un campo ilegible y el auditor la contaba
+  como cita falsa. Ver ADR-0002.
+- **El cupo diario es de 20 peticiones por modelo**, confirmado por el
+  cuerpo del 429 (`limit: 20`) y por seguir rechazando tras 140 segundos,
+  lo que descarta que sea una ventana por minuto.
+- **Un 503 de sobrecarga consume cupo.** Doce peticiones fallidas en dos
+  minutos agotaron el día entero sin producir una decisión. Ver ADR-0001.
+
 ## Limitaciones
 
 Esta sección crecerá conforme haya resultados que la llenen. Hoy:
 
-- Un solo tipo de documento (cédula colombiana). No hay nada que sugiera
-  que generalice a otros formatos.
-- El conjunto de evaluación es mayoritariamente sintético. Los documentos
-  reales usados para calibrar el OCR no se publican.
-- El cupo gratuito de la API del modelo limita el tamaño de las tandas de
-  evaluación; ver ADR-0001.
+- Un solo tipo de documento (cédula colombiana digital de policarbonato).
+  No hay nada que sugiera que generalice a otros formatos.
+- El conjunto de evaluación será mayoritariamente sintético. Los
+  documentos reales usados para calibrar el OCR no se publican.
+- El tercer caso de la sonda (captura mala) **sigue sin ejecutarse**: la
+  API devolvió 503 en los cuatro modelos probados.
+- El contador de presupuesto empezó a existir después de haberse gastado
+  el cupo del primer día, así que esa cuenta se sembró a mano.
+- La API rechaza modelos que su propio `ListModels` sigue listando, de
+  modo que elegir modelo automáticamente no es fiable.
