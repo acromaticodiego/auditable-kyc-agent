@@ -257,7 +257,7 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   documentos reales.
 - El conjunto vivió 18 casos **sin un solo caso de escalado a revisión
   humana**, midiendo un sistema de tres salidas y llamándolo de cuatro.
-- La partición está desbalanceada: 4 fraudes en calibración y 6 en el
+- La partición está desbalanceada: 3 fraudes en calibración y 5 en el
   reservado, y el escalado a revisión humana cae 2 contra 1. El hash no
   reparte fino con tan pocos casos; se corrige creciendo el catálogo, no
   tocando la partición.
