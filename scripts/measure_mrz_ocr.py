@@ -23,7 +23,7 @@ from datetime import date
 from app.signals.mrz import parse_mrz
 from app.signals.ocr_mrz import read_mrz
 from app.synthetic.cedula import CedulaData, render_back
-from app.synthetic.degradation import blur, downscale, jpeg_artifacts
+from app.synthetic.degradation import blur, downscale, jpeg_artifacts, rotate
 
 IDENTITIES = [
     ("WALTEROS", "LAURA", "1234567890", "000000012", date(2004, 4, 15), date(2032, 4, 19)),
@@ -46,6 +46,10 @@ CONDITIONS = {
     "blur r=3": lambda image: blur(image, 3.0),
     "resolucion /2": lambda image: downscale(image, 2.0),
     "resolucion /3": lambda image: downscale(image, 3.0),
+    # El giro entra en el banco porque es la condicion para la que existe el
+    # enderezado.  Sin estas dos filas la medida no diria nada sobre el.
+    "girada 3": lambda image: rotate(image, 3.0),
+    "girada 6": lambda image: rotate(image, 6.0),
 }
 
 

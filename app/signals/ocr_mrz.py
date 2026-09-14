@@ -151,12 +151,41 @@ def _fix_alpha_fields(lines: list[str]) -> list[str]:
     return fixed
 
 
+# Angulos candidatos para enderezar la banda de la MRZ.
+#
+# La MRZ aguanta muy poco giro: medido sobre una cedula sintetica, a 2
+# grados los cuatro digitos seguian cuadrando y a 3 ya no.  Como las fotos
+# reales de un documento sobre una mesa vienen torcidas por sistema, sin
+# enderezar se marcaria como sospechoso a casi todo el mundo.
+#
+# El angulo se elige por GEOMETRIA, no probando hasta que los digitos
+# cuadren.  La primera version hacia justo eso -- recorrer angulos y
+# quedarse con el primero que validara -- y un test lo tumbo en el acto:
+# sobre una MRZ con un digito roto a proposito, el barrido encontraba un
+# angulo en el que la lectura cuadraba y declaraba valido un documento
+# manipulado.  Era un corrector encubierto mucho mas agresivo que _repair,
+# capaz de cambiar cualquier numero de caracteres, y elegia justo el
+# resultado que le convenia.
+#
+# Elegir por geometria rompe esa circularidad: el angulo sale de como estan
+# puestas las lineas en la imagen y no de si el resultado valida.
+# Ordenados por valor absoluto para que, en caso de empate, gane el
+# angulo mas pequeno y ante la duda no se rote.  Aun asi el estimador
+# no es exacto: sobre una imagen perfectamente recta sigue prefiriendo
+# 1 grado, porque a esa inclinacion la varianza del perfil sale algo
+# mayor.  No se corrigio porque no cambia la lectura -- sigue saliendo
+# exacta -- pero la precision de este estimador es de mas menos un
+# grado y conviene no fiarse del numero que devuelve.
+DESKEW_ANGLES = (0.0, -1.0, 1.0, -2.0, 2.0, -3.0, 3.0, -4.0, 4.0, -5.0, 5.0)
+
+
 @dataclass(frozen=True)
 class MrzReading:
     lines: list[str]
     raw_text: str
     repaired: bool
     error: str | None = None
+    deskew_angle: float = 0.0
 
     @property
     def ok(self) -> bool:
@@ -251,34 +280,78 @@ def _repair(lines: list[str]) -> list[str] | None:
     return None
 
 
-def read_mrz(image: Image.Image, *, repair: bool = True) -> MrzReading:
-    # Se le da la banda en escala de grises, sin binarizar: ver binarize().
-    band = crop_mrz_band(image).convert("L")
+def _rotate_band(band: Image.Image, angle: float) -> Image.Image:
+    if not angle:
+        return band
+    return band.rotate(
+        angle,
+        resample=Image.Resampling.BICUBIC,
+        expand=True,
+        fillcolor=(245, 248, 251),
+    )
+
+
+def estimate_skew(band: Image.Image, angles=DESKEW_ANGLES) -> float:
+    """Angulo al que las lineas de la MRZ quedan mas horizontales.
+
+    Se mide por proyeccion de perfil: se cuentan los pixeles oscuros de
+    cada fila y se busca el angulo que hace esa cuenta mas desigual.  Con
+    el texto derecho, las filas de letras se llenan y las de entre lineas
+    se vacian, asi que la varianza del perfil se dispara; con el texto
+    torcido, cada fila mezcla letras y huecos y el perfil se aplana.
+
+    No mira el contenido ni si los digitos cuadran.  Esa independencia es
+    el punto: un enderezado que se guiara por la validacion la fabricaria.
+    """
+    best_angle, best_score = 0.0, -1.0
+    for angle in angles:
+        gray = np.asarray(_rotate_band(band, angle).convert("L"), dtype=np.float64)
+        dark = (gray < gray.mean() - 0.3 * gray.std()).sum(axis=1).astype(np.float64)
+        score = float(dark.var())
+        if score > best_score:
+            best_angle, best_score = angle, score
+    return best_angle
+
+
+def _read_at(image: Image.Image, angle: float) -> tuple[list[str], str]:
+    band = _rotate_band(crop_mrz_band(image), angle).convert("L")
     text = pytesseract.image_to_string(band, config=TESSERACT_CONFIG)
     lines = _candidate_lines(text)
-
     if len(lines) < TD1_LINE_COUNT:
+        return [], text
+    return _fix_alpha_fields([_pad_or_trim(l) for l in lines[-TD1_LINE_COUNT:]]), text
+
+
+def read_mrz(image: Image.Image, *, repair: bool = True, deskew: bool = True) -> MrzReading:
+    angle = estimate_skew(crop_mrz_band(image)) if deskew else 0.0
+    lines, text = _read_at(image, angle)
+
+    if lines and _checks_pass(lines):
         return MrzReading(
-            lines=lines,
+            lines=lines, raw_text=text, repaired=False, deskew_angle=angle
+        )
+
+    if not lines:
+        return MrzReading(
+            lines=[],
             raw_text=text,
             repaired=False,
             error=(
                 f"solo se reconocieron {len(lines)} lineas con forma de MRZ, "
                 f"hacen falta {TD1_LINE_COUNT}"
             ),
+            deskew_angle=angle,
         )
-
-    lines = [_pad_or_trim(line) for line in lines[-TD1_LINE_COUNT:]]
-    lines = _fix_alpha_fields(lines)
-
-    if _checks_pass(lines):
-        return MrzReading(lines=lines, raw_text=text, repaired=False)
 
     if repair:
         corrected = _repair(lines)
         if corrected is not None:
-            return MrzReading(lines=corrected, raw_text=text, repaired=True)
+            return MrzReading(
+                lines=corrected, raw_text=text, repaired=True, deskew_angle=angle
+            )
 
     # Se devuelve la lectura tal cual, sin error: que los digitos no cuadren
     # NO es un fallo de lectura, es justo lo que hay que reportar como senal.
-    return MrzReading(lines=lines, raw_text=text, repaired=False)
+    return MrzReading(
+        lines=lines, raw_text=text, repaired=False, deskew_angle=angle
+    )
