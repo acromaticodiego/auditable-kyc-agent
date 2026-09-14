@@ -15,6 +15,7 @@ import sys
 
 from pydantic import ValidationError
 
+from app.agent.budget import RequestBudget
 from app.agent.cache import ResponseCache
 from app.agent.gemini import (
     GeminiClient,
@@ -130,11 +131,16 @@ def probe(name: str, signals: SignalSet, client: GeminiClient) -> bool:
 
 
 def main() -> int:
+    budget = RequestBudget()
     client = GeminiClient(
         api_key=settings.gemini_api_key,
         model=settings.gemini_model,
         cache=ResponseCache(".llm_cache"),
+        budget=budget,
     )
+    print(f"cupo de hoy para {settings.gemini_model}: "
+          f"{budget.spent(settings.gemini_model)} gastadas, "
+          f"{budget.remaining(settings.gemini_model)} restantes")
 
     contract_ok = 0
     try:
@@ -151,6 +157,7 @@ def main() -> int:
     print(f"\n{'=' * 70}")
     print(f"contrato respetado en {contract_ok} de {len(CASES)} casos "
           f"(muestra de {len(CASES)}: insuficiente para afirmar fiabilidad)")
+    print(f"cupo restante para {client.model}: {budget.remaining(client.model)}")
     return 0 if contract_ok == len(CASES) else 1
 
 

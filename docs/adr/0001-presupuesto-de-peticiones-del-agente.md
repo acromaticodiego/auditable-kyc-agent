@@ -71,6 +71,30 @@ pena señalar que la restricción resultó productiva: obligó a un diseño
 con caché y presupuesto explícito de peticiones que es exactamente lo que
 haría falta en producción por motivos de coste y latencia, no de cupo.
 
+## Lo que la primera tanda real corrigió de esta ADR
+
+Esta ADR se escribió contando peticiones **exitosas**. La realidad cobró
+también las fallidas.
+
+**Un 503 consume cupo igual que una respuesta buena.** La API devuelve
+`UNAVAILABLE` con frecuencia —en una prueba de cinco modelos, tres lo
+devolvieron— y el reintento automático multiplica el gasto justo cuando
+está saturada. Doce peticiones fallidas en poco más de dos minutos agotaron
+el cupo diario de 20 **sin producir una sola decisión**. De ahí tres
+cambios: el reintento por defecto baja de dos a uno, el sistema lleva un
+presupuesto propio persistido en disco, y ese presupuesto **anota el
+intento antes de lanzarlo**, no el éxito al recibirlo.
+
+**El límite de 20 es diario, no por minuto.** El 429 sugiere lo contrario
+(«retry in 10.6s»), pero tras 140 segundos de espera seguía rechazando. El
+cuerpo del error lo confirma: `limit: 20, model: gemini-3.5-flash`.
+
+**El modelo por defecto no siempre existe para una cuenta nueva.**
+`gemini-2.5-flash` devolvió 404 con el mensaje de que ya no está disponible
+para usuarios nuevos. Y `ListModels` lo seguía listando: **el listado de la
+API no dice a qué tiene acceso la clave**, así que no sirve para elegir
+modelo automáticamente.
+
 ## Consecuencias
 
 - El número medio de peticiones por caso pasa a ser **una métrica del

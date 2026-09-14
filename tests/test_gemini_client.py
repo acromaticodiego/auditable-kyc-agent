@@ -9,6 +9,7 @@ solo lo contesta una llamada real (scripts/probe_gemini.py).
 import httpx
 import pytest
 
+from app.agent.budget import BudgetExhausted, RequestBudget
 from app.agent.cache import ResponseCache
 from app.agent.gemini import (
     GeminiClient,
@@ -25,6 +26,10 @@ def ok_body(text: str = '{"a": "b"}') -> dict:
 
 
 def build_client(tmp_path, handler, model: str = "gemini-test", **kwargs) -> GeminiClient:
+    # El presupuesto va sin tope y en tmp_path salvo que el test diga otra
+    # cosa: si apuntara al fichero real, la suite gastaria la cuenta del dia
+    # y empezaria a fallar sola al llegar a veinte.
+    kwargs.setdefault("budget", RequestBudget(tmp_path / "budget.json", daily_limit=None))
     return GeminiClient(
         api_key="clave-de-prueba",
         model=model,
@@ -185,8 +190,12 @@ def test_una_respuesta_que_no_es_json_se_reporta_como_tal():
 
 def test_un_503_se_reintenta_y_la_siguiente_respuesta_vale(tmp_path):
     """El 503 de Gemini ("high demand") aparece de verdad: en una prueba de
-    cinco modelos, tres lo devolvieron."""
-    codes = [503, 503, 200]
+    cinco modelos, tres lo devolvieron.
+
+    Con el reintento por defecto (uno) hay dos intentos en total, no tres:
+    cada reintento gasta cupo y el tope diario es de veinte.
+    """
+    codes = [503, 200]
 
     def handler(request: httpx.Request) -> httpx.Response:
         code = codes.pop(0)
@@ -262,3 +271,103 @@ def test_no_se_puede_conectar_y_se_menciona_el_tls(tmp_path):
 
     with pytest.raises(GeminiError, match="antivirus"):
         build_client(tmp_path, handler).generate_json("hola", SCHEMA)
+
+
+# --- Presupuesto de peticiones ---------------------------------------------
+
+
+def test_una_respuesta_de_cache_no_gasta_presupuesto(tmp_path):
+    """Es la razon de ser de la cache: repetir una tanda sin tocar el prompt
+    no debe costar cupo."""
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=ok_body())
+
+    client = build_client(tmp_path, handler, budget=budget)
+    client.generate_json("hola", SCHEMA)
+    client.generate_json("hola", SCHEMA)
+
+    assert budget.spent("gemini-test") == 1
+
+
+def test_cada_reintento_por_sobrecarga_gasta_presupuesto(tmp_path):
+    """La leccion que costo el cupo de un dia entero: un 503 se paga igual
+    que una respuesta buena."""
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="high demand")
+
+    with pytest.raises(GeminiError):
+        build_client(tmp_path, handler, budget=budget, max_retries=2).generate_json(
+            "hola", SCHEMA
+        )
+
+    assert budget.spent("gemini-test") == 3
+
+
+def test_un_corte_por_tiempo_tambien_gasta_presupuesto(tmp_path):
+    """No se sabe si la peticion llego; contarla es lo conservador."""
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    with pytest.raises(GeminiError):
+        build_client(tmp_path, handler, budget=budget, max_retries=0).generate_json(
+            "hola", SCHEMA
+        )
+
+    assert budget.spent("gemini-test") == 1
+
+
+def test_al_agotarse_el_presupuesto_no_se_llega_a_llamar(tmp_path):
+    """Parar en seco es mejor que descubrirlo a base de 429."""
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=2)
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=ok_body())
+
+    client = build_client(tmp_path, handler, budget=budget)
+    client.generate_json("uno", SCHEMA)
+    client.generate_json("dos", SCHEMA)
+
+    with pytest.raises(BudgetExhausted, match="503"):
+        client.generate_json("tres", SCHEMA)
+
+    assert len(calls) == 2
+
+
+def test_el_conteo_sobrevive_al_proceso(tmp_path):
+    """El cupo es diario y el proceso no dura un dia; sin persistencia la
+    cuenta empezaria de cero en cada ejecucion."""
+    path = tmp_path / "budget.json"
+    RequestBudget(path).record("gemini-test")
+
+    assert RequestBudget(path).spent("gemini-test") == 1
+
+
+def test_el_conteo_de_ayer_no_gasta_el_cupo_de_hoy(tmp_path):
+    import datetime
+
+    path = tmp_path / "budget.json"
+    ayer = RequestBudget(path, today=datetime.date(2026, 9, 13))
+    ayer.record("gemini-test")
+    ayer.record("gemini-test")
+
+    hoy = RequestBudget(path, today=datetime.date(2026, 9, 14))
+
+    assert (hoy.spent("gemini-test"), hoy.remaining("gemini-test")) == (0, 20)
+
+
+def test_el_cupo_se_lleva_por_modelo(tmp_path):
+    """Rotar el nombre del modelo da cupo nuevo, asi que la cuenta tiene que
+    separarlos."""
+    path = tmp_path / "budget.json"
+    budget = RequestBudget(path)
+    budget.record("gemini-uno")
+
+    assert (budget.spent("gemini-uno"), budget.spent("gemini-dos")) == (1, 0)

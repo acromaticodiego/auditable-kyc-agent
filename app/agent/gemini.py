@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.agent.budget import RequestBudget
 from app.agent.cache import ResponseCache
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -23,6 +24,11 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 # Codigos que merecen reintento.  El 503 de Gemini ("high demand") aparece
 # de verdad y con frecuencia: en una prueba de cinco modelos, tres lo
 # devolvieron.  El 429 NO esta aqui a proposito, ver QuotaExhausted.
+#
+# Ojo con reintentar mucho: un 503 consume cupo igual que una respuesta
+# buena.  Doce peticiones fallidas en dos minutos agotaron el cupo diario
+# de 20 sin producir una sola decision, asi que el reintento por defecto
+# es uno y no dos.
 RETRYABLE_STATUS = frozenset({500, 502, 503, 504})
 
 
@@ -57,8 +63,9 @@ class GeminiClient:
         # un esquema de respuesta, y el timeout llegaba como un traceback
         # de httpcore en vez de como un error con sentido.
         timeout: float = 180.0,
-        max_retries: int = 2,
+        max_retries: int = 1,
         backoff_seconds: float = 2.0,
+        budget: RequestBudget | None = None,
         http_client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -72,6 +79,7 @@ class GeminiClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
+        self.budget = budget or RequestBudget()
         # Inyectables para poder probar el manejo de errores de la API
         # (cupo agotado, sobrecarga, corte) sin gastar peticiones reales
         # ni esperar de verdad a que pase el retroceso.
@@ -116,6 +124,11 @@ class GeminiClient:
         last_error: GeminiError | None = None
 
         for attempt in range(self.max_retries + 1):
+            # El intento se anota antes de lanzarlo: un 503 o un corte por
+            # tiempo gastan cupo igual que una respuesta buena, asi que
+            # contarlos solo al acertar volveria a dejar la cuenta ciega.
+            self.budget.ensure_available(self.model)
+            self.budget.record(self.model)
             try:
                 response = self._http.post(
                     url, params={"key": self.api_key}, json=request
