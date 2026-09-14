@@ -70,11 +70,13 @@ mismos datos.
 
 Con honestidad sobre el tamaño de muestra, que por ahora es diminuto:
 
-- **2 casos ejecutados contra la API real** (`gemini-3.5-flash`). En los
-  dos, el modelo respetó el esquema de respuesta y la decisión fue la
-  razonable. Dos casos no permiten afirmar nada sobre fiabilidad; solo
+- **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,
+  una petición cada uno. Los 3 respetaron el esquema de respuesta y
+  decidieron lo razonable: aprobar el caso claro, pedir reenvío en el
+  ambiguo y en el de captura mala. **9 citas, las 9 válidas.** Tres casos
+  construidos a mano no permiten afirmar nada sobre fiabilidad; solo
   descartan que el enfoque sea inviable.
-- **Una de esas 2 decisiones destapó un fallo del verificador, no del
+- **Una ejecución anterior destapó un fallo del verificador, no del
   modelo.** Citó la ausencia de un campo ilegible y el auditor la contaba
   como cita falsa. Ver ADR-0002.
 - **El cupo diario es de 20 peticiones por modelo**, confirmado por el
@@ -91,8 +93,11 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   No hay nada que sugiera que generalice a otros formatos.
 - El conjunto de evaluación será mayoritariamente sintético. Los
   documentos reales usados para calibrar el OCR no se publican.
-- El tercer caso de la sonda (captura mala) **sigue sin ejecutarse**: la
-  API devolvió 503 en los cuatro modelos probados.
+- La sonda se completó con `gemini-3.1-flash-lite` porque el cupo de
+  `gemini-3.5-flash` ya estaba agotado. Para una sonda de contrato da
+  igual, pero **ninguna medición de acierto podrá mezclar modelos**.
+- La API devuelve 503 con mucha frecuencia; hubo que probar cinco modelos
+  para encontrar uno que respondiera.
 - El contador de presupuesto empezó a existir después de haberse gastado
   el cupo del primer día, así que esa cuenta se sembró a mano.
 - La API rechaza modelos que su propio `ListModels` sigue listando, de
