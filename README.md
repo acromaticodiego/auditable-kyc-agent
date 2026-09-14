@@ -160,6 +160,38 @@ y declaraba válido un documento manipulado. Era un corrector encubierto que
 elegía el resultado que le convenía. Ahora el ángulo se estima por
 geometría, sin mirar si valida.
 
+### La línea base de reglas fijas — y lo que eso significa
+
+Un árbol de decisión sin modelo de lenguaje, con los umbrales elegidos
+mirando **solo la mitad de calibración**:
+
+| | aciertos | explicaciones fieles |
+|---|---|---|
+| calibración (9 casos) | 9/9 | 9/9 |
+| **reservado (9 casos)** | **8/9** | 9/9 |
+
+El de la izquierda está inflado por construcción: los cortes se eligieron
+sobre esos mismos casos. **El de la derecha es la medida.**
+
+El único fallo es `caducado-y-borroso`, que ya estaba etiquetado como
+discutible antes de medir nada: las reglas piden otra foto por la nitidez
+baja antes de mirar la vigencia, y la etiqueta dice rechazar porque la
+fecha sigue leyéndose. No se han tocado los umbrales para arreglarlo — el
+reservado queda quemado, y ajustarlo ahora convertiría la próxima medición
+en otro número elegido sobre sus propios datos.
+
+**Lo importante de este 8/9 no es que sea alto, es lo que implica:** las
+señales deterministas resuelven casi todo el conjunto ellas solas. Si el
+agente saca 8/9 o 9/9, con esta muestra **no se podrá afirmar que aporte
+nada**. La comparación, tal y como está el conjunto hoy, no tiene margen
+para informar. Eso es un problema del conjunto de evaluación —18 casos
+derivados de una sola identidad, con pocos genuinamente ambiguos— y no un
+mérito del agente ni de las reglas.
+
+La línea base cita señales y pasa por el mismo verificador que el agente.
+Si pudiera explicarse sin citar nada verificable, la comparación sería
+injusta a su favor.
+
 ### Decisiones del agente
 
 - **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,
