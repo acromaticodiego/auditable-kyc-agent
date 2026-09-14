@@ -1,0 +1,264 @@
+"""Pruebas del cliente de Gemini con transporte simulado.
+
+Todo lo que hay aqui se prueba sin tocar la API real: el cupo diario es de
+20 peticiones y gastarlo en probar el manejo de errores seria absurdo.  Lo
+que NO se prueba aqui es si el modelo de verdad respeta el esquema; eso
+solo lo contesta una llamada real (scripts/probe_gemini.py).
+"""
+
+import httpx
+import pytest
+
+from app.agent.cache import ResponseCache
+from app.agent.gemini import (
+    GeminiClient,
+    GeminiError,
+    QuotaExhausted,
+    parse_json_response,
+)
+
+SCHEMA = {"type": "object", "properties": {"a": {"type": "string"}}}
+
+
+def ok_body(text: str = '{"a": "b"}') -> dict:
+    return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+
+
+def build_client(tmp_path, handler, model: str = "gemini-test", **kwargs) -> GeminiClient:
+    return GeminiClient(
+        api_key="clave-de-prueba",
+        model=model,
+        cache=ResponseCache(tmp_path),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        # El retroceso no se duerme de verdad: si no, la suite tardaria
+        # segundos en probar algo que no depende del reloj.
+        sleep=lambda seconds: waited.append(seconds),
+        **kwargs,
+    )
+
+
+waited: list[float] = []
+
+
+def test_una_peticion_repetida_sale_de_cache_sin_tocar_la_red(tmp_path):
+    """Es lo que hace viable iterar sobre el prompt con 20 peticiones al dia."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=ok_body())
+
+    client = build_client(tmp_path, handler)
+
+    first = client.generate_json("hola", SCHEMA)
+    second = client.generate_json("hola", SCHEMA)
+
+    assert (first.from_cache, second.from_cache) == (False, True)
+    assert first.text == second.text
+    assert len(calls) == 1
+
+
+def test_un_prompt_distinto_no_reutiliza_la_entrada_de_cache(tmp_path):
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=ok_body())
+
+    client = build_client(tmp_path, handler)
+
+    client.generate_json("hola", SCHEMA)
+    response = client.generate_json("adios", SCHEMA)
+
+    assert response.from_cache is False
+    assert len(calls) == 2
+
+
+def test_cambiar_de_modelo_invalida_la_cache(tmp_path):
+    """Dos modelos ante el mismo prompt son dos sistemas distintos.
+
+    Si compartieran entrada de cache, rotar el nombre del modelo para
+    conseguir cupo nuevo devolveria la respuesta del modelo anterior y la
+    tanda mediria algo que nadie ejecuto.
+    """
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=ok_body())
+
+    build_client(tmp_path, handler, model="gemini-uno").generate_json("hola", SCHEMA)
+    response = build_client(tmp_path, handler, model="gemini-dos").generate_json(
+        "hola", SCHEMA
+    )
+
+    assert response.from_cache is False
+    assert len(calls) == 2
+
+
+def test_el_cupo_agotado_se_distingue_del_resto_de_errores(tmp_path):
+    """Ante un 429 se para la tanda; ante otros errores se puede reaccionar
+    distinto.  Por eso es una excepcion propia y no un GeminiError a secas."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="RESOURCE_EXHAUSTED: quota per day")
+
+    client = build_client(tmp_path, handler)
+
+    with pytest.raises(QuotaExhausted, match="quota per day"):
+        client.generate_json("hola", SCHEMA)
+
+
+def test_un_error_http_cualquiera_conserva_el_cuerpo(tmp_path):
+    """El cuerpo es donde Google explica que pasa; perderlo obliga a
+    adivinar.  Fue literalmente lo que identifico una clave equivocada."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="API key not valid")
+
+    client = build_client(tmp_path, handler)
+
+    with pytest.raises(GeminiError, match="API key not valid"):
+        client.generate_json("hola", SCHEMA)
+
+
+def test_una_respuesta_bloqueada_dice_por_que(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"candidates": [], "promptFeedback": {"blockReason": "SAFETY"}}
+        )
+
+    client = build_client(tmp_path, handler)
+
+    with pytest.raises(GeminiError, match="SAFETY"):
+        client.generate_json("hola", SCHEMA)
+
+
+def test_un_candidato_cortado_dice_el_motivo_del_corte(tmp_path):
+    """Sin esto, un corte por longitud llegaria como 'JSON invalido' y se
+    perseguiria el error en el sitio equivocado."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {}}]}
+        )
+
+    client = build_client(tmp_path, handler)
+
+    with pytest.raises(GeminiError, match="MAX_TOKENS"):
+        client.generate_json("hola", SCHEMA)
+
+
+def test_una_respuesta_fallida_no_se_guarda_en_cache(tmp_path):
+    """Cachear un error lo volveria permanente hasta borrar el directorio."""
+    status = {"code": 500}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if status["code"] == 500:
+            return httpx.Response(500, text="boom")
+        return httpx.Response(200, json=ok_body())
+
+    client = build_client(tmp_path, handler)
+
+    with pytest.raises(GeminiError):
+        client.generate_json("hola", SCHEMA)
+
+    status["code"] = 200
+    response = client.generate_json("hola", SCHEMA)
+
+    assert response.from_cache is False
+    assert response.text == '{"a": "b"}'
+
+
+def test_sin_clave_el_cliente_no_llega_a_construirse():
+    with pytest.raises(GeminiError, match="GEMINI_API_KEY"):
+        GeminiClient(api_key="", model="gemini-test")
+
+
+def test_una_respuesta_que_no_es_json_se_reporta_como_tal():
+    with pytest.raises(GeminiError, match="no es JSON valido"):
+        parse_json_response("lo siento, no puedo ayudarte con eso")
+
+
+# --- Sobrecarga de la API y reintentos -------------------------------------
+
+
+def test_un_503_se_reintenta_y_la_siguiente_respuesta_vale(tmp_path):
+    """El 503 de Gemini ("high demand") aparece de verdad: en una prueba de
+    cinco modelos, tres lo devolvieron."""
+    codes = [503, 503, 200]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        code = codes.pop(0)
+        if code == 200:
+            return httpx.Response(200, json=ok_body())
+        return httpx.Response(code, text="high demand")
+
+    response = build_client(tmp_path, handler).generate_json("hola", SCHEMA)
+
+    assert response.text == '{"a": "b"}'
+    assert codes == []
+
+
+def test_un_503_persistente_acaba_fallando_con_el_cuerpo(tmp_path):
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(503, text="high demand")
+
+    with pytest.raises(GeminiError, match="high demand"):
+        build_client(tmp_path, handler, max_retries=2).generate_json("hola", SCHEMA)
+
+    assert len(calls) == 3  # el intento inicial mas dos reintentos
+
+
+def test_el_cupo_agotado_no_se_reintenta(tmp_path):
+    """Insistir sobre un 429 diario solo gasta tiempo, y sobre uno por
+    minuto gasta el cupo del minuto siguiente."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(429, text="quota per day")
+
+    with pytest.raises(QuotaExhausted):
+        build_client(tmp_path, handler, max_retries=2).generate_json("hola", SCHEMA)
+
+    assert len(calls) == 1
+
+
+def test_un_400_no_se_reintenta(tmp_path):
+    """Una clave invalida o un esquema mal formado no mejoran por insistir."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(400, text="API key not valid")
+
+    with pytest.raises(GeminiError, match="API key not valid"):
+        build_client(tmp_path, handler, max_retries=2).generate_json("hola", SCHEMA)
+
+    assert len(calls) == 1
+
+
+def test_un_corte_por_tiempo_se_reintenta_y_se_explica(tmp_path):
+    """Sin esto el corte llegaba como un traceback de httpcore de cuarenta
+    lineas que no decia cuanto se habia esperado."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    with pytest.raises(GeminiError, match="no respondio en 180s"):
+        build_client(tmp_path, handler).generate_json("hola", SCHEMA)
+
+
+def test_no_se_puede_conectar_y_se_menciona_el_tls(tmp_path):
+    """La pista del antivirus interceptando TLS ahorra horas de buscar en
+    el sitio equivocado."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("certificate verify failed")
+
+    with pytest.raises(GeminiError, match="antivirus"):
+        build_client(tmp_path, handler).generate_json("hola", SCHEMA)

@@ -38,7 +38,12 @@ services:
       # ejecutado nada de lo nuevo.
       - ./app:/srv/app:ro
       - ./tests:/srv/tests:ro
+      - ./scripts:/srv/scripts:ro
       - ./pytest.ini:/srv/pytest.ini:ro
+      # La cache vive en el anfitrion: si se quedara dentro del contenedor,
+      # recrearlo tiraria las respuestas guardadas y habria que volver a
+      # gastar cupo para recuperarlas.
+      - ./.llm_cache:/srv/.llm_cache
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 

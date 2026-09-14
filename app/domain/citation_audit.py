@@ -16,7 +16,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.domain.decision import AgentDecision
-from app.domain.signals import Signal, SignalKind, SignalSet, SignalValue
+from app.domain.signals import (
+    UNAVAILABLE_MARKER,
+    Signal,
+    SignalKind,
+    SignalSet,
+    SignalValue,
+)
 
 # Tolerancia para senales continuas.
 #
@@ -40,8 +46,10 @@ class CitationStatus(str, Enum):
     VALID = "valid"
     # El identificador citado no existe en el catalogo: invencion pura.
     UNKNOWN_SIGNAL = "unknown_signal"
-    # La senal existe pero no se pudo calcular; atribuirle un valor es
-    # inventarse una medicion que nunca se hizo.
+    # La senal existe pero no se pudo calcular y el agente le atribuyo un
+    # valor concreto: se invento una medicion que nunca se hizo.  Citar la
+    # ausencia en si (con el marcador) SI es valido, porque suele ser el
+    # motivo mismo de la decision.
     UNAVAILABLE_SIGNAL = "unavailable_signal"
     # La senal existe y tiene valor, pero el citado no es ese.
     VALUE_MISMATCH = "value_mismatch"
@@ -90,6 +98,20 @@ def _normalize_text(value: object) -> str:
     return " ".join(text.lower().split())
 
 
+def _cites_absence(cited: SignalValue | None) -> bool:
+    """Si la cita reconoce que la senal no se pudo medir.
+
+    Lo descubrio la primera sonda real: ante un documento con la fecha de
+    vencimiento fuera del recorte, el modelo pidio reenvio y lo fundamento
+    citando esa ausencia, copiando el marcador tal cual del listado.  El
+    auditor la contaba como cita falsa, castigando justo la cita mas
+    honesta que podia hacer.
+    """
+    if cited is None:
+        return False
+    return _normalize_text(cited) == _normalize_text(UNAVAILABLE_MARKER)
+
+
 def _values_match(signal: Signal, cited: SignalValue) -> bool:
     if signal.kind in (SignalKind.SCORE, SignalKind.CONFIDENCE):
         try:
@@ -99,13 +121,22 @@ def _values_match(signal: Signal, cited: SignalValue) -> bool:
             return False
 
     if signal.kind is SignalKind.COUNT:
+        # Sin tolerancia, pero pasando por float: el modelo devuelve los
+        # valores como cadena y puede escribir "2.0" donde la senal vale 2.
+        # Con int("2.0") eso reventaria y se contaria como cita falsa, que
+        # es un falso positivo de la metrica.
         try:
-            return int(cited) == int(signal.value)
+            return float(cited) == float(signal.value)
         except (TypeError, ValueError):
             return False
 
     if signal.kind is SignalKind.FLAG:
-        return isinstance(cited, bool) and cited is signal.value
+        # El valor citado llega como cadena ("true"), no como booleano,
+        # porque el esquema de Gemini no admite una union de tipos en un
+        # mismo campo; ver app/agent/schema.py.
+        if isinstance(cited, bool):
+            return cited is signal.value
+        return _normalize_text(cited) == _normalize_text(signal.value)
 
     return _normalize_text(cited) == _normalize_text(signal.value)
 
@@ -120,7 +151,11 @@ def audit_citations(decision: AgentDecision, signals: SignalSet) -> AuditReport:
         if signal is None:
             status = CitationStatus.UNKNOWN_SIGNAL
         elif not signal.available:
-            status = CitationStatus.UNAVAILABLE_SIGNAL
+            status = (
+                CitationStatus.VALID
+                if _cites_absence(grounding.cited_value)
+                else CitationStatus.UNAVAILABLE_SIGNAL
+            )
         elif grounding.cited_value is None:
             status = CitationStatus.MISSING_CITED_VALUE
         elif _values_match(signal, grounding.cited_value):

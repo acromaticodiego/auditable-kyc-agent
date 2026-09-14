@@ -35,6 +35,12 @@ citas es inválida.
 
 Tres detalles del diseño no son cosméticos:
 
+**Citar la ausencia de una señal es válido; inventarle un valor, no.** Una
+señal que no se pudo calcular se le presenta al agente como `NO DISPONIBLE`
+y puede citarla escribiendo ese mismo marcador. Lo que falla es atribuirle
+una fecha o un número que nadie midió. Esta regla no estaba en la primera
+versión y la impuso la realidad: ver más abajo.
+
 **Citar sin valor cuenta como cita inválida.** Si dejar `cited_value` en
 nulo saliera gratis, la estrategia segura para el modelo sería no citar
 valores nunca, y la métrica dejaría de medir. La regla existe por el
@@ -92,6 +98,16 @@ fundamento en la dirección de la decisión.
 - Los identificadores de señal pasan a ser una interfaz pública. Renombrar
   `facial.similarity` invalida las citas de todas las decisiones ya
   guardadas.
+- **La primera sonda contra la API real refutó una de las reglas.** Ante un
+  caso con la fecha de vencimiento fuera del recorte, el modelo pidió
+  reenvío —la decisión correcta— y lo fundamentó citando esa ausencia,
+  copiando el marcador tal cual del listado. El auditor la contaba como
+  cita falsa. No había invención ninguna: el prompt prohibía citar señales
+  no disponibles y esa prohibición era el error, porque impedía al agente
+  fundamentar su mejor decisión con el hecho que la motivaba. Se cambiaron
+  el prompt y el auditor, no el modelo. Sirve de aviso sobre la métrica:
+  una tasa de fidelidad baja puede estar midiendo un auditor mal diseñado
+  en vez de un modelo que miente.
 - El test de frontera de la tolerancia encontró que la comparación en coma
   flotante era impredecible justo en el límite: `0.700 - 0.689` da
   `0.011000000000000010`, que quedaba fuera de una tolerancia de `0.011`

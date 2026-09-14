@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://kyc:kyc@localhost:5434/kyc"
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
 
     # Vueltas maximas del bucle del agente.  El limite no es una precaucion
     # teorica: cada vuelta gasta una peticion del cupo diario gratuito, asi

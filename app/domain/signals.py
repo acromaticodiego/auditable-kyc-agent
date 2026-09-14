@@ -18,6 +18,12 @@ from enum import Enum
 
 SignalValue = float | int | str | bool
 
+# Como se nombra la ausencia de una senal, tanto en el prompt que ve el
+# agente como en la cita que devuelve.  Es una constante compartida y no
+# una cadena suelta en cada sitio porque la comparacion de la cita depende
+# de que las dos puntas usen exactamente la misma palabra.
+UNAVAILABLE_MARKER = "NO DISPONIBLE"
+
 
 class SignalKind(str, Enum):
     """Tipo de senal.  Determina como se compara una cita con el valor real."""

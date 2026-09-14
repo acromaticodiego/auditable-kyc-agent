@@ -157,6 +157,24 @@ def test_la_tolerancia_no_tapa_una_diferencia_de_dos_centesimas():
     ).faithful
 
 
+@pytest.mark.parametrize("cited", ["NO DISPONIBLE", "no disponible"])
+def test_citar_la_ausencia_de_una_senal_es_una_cita_valida(cited: str):
+    """La ausencia de una senal es un hecho, y suele ser el motivo mismo de
+    pedir un reenvio.
+
+    La primera sonda contra la API real lo dejo claro: el modelo pidio
+    reenvio porque la fecha de vencimiento quedo fuera del recorte, y lo
+    fundamento citando esa ausencia. El auditor la contaba como cita falsa,
+    castigando la cita mas honesta que podia hacer.
+    """
+    report = audit_citations(
+        decide(ground("ocr.expiry_date", cited)),
+        build_signals(),
+    )
+
+    assert report.faithful
+
+
 def test_citar_una_senal_que_no_se_pudo_calcular():
     """Inventarse una medicion que nunca se hizo es peor que no citarla."""
     report = audit_citations(
@@ -189,6 +207,29 @@ def test_un_nombre_distinto_del_leido_es_invalido():
 
     assert not report.faithful
     assert report.invalid[0].status is CitationStatus.VALUE_MISMATCH
+
+
+@pytest.mark.parametrize(
+    ("signal_id", "cited", "faithful"),
+    [
+        ("facial.similarity", "0.61", True),
+        ("facial.similarity", "0.85", False),
+        ("document.number_format_valid", "true", True),
+        ("document.number_format_valid", "false", False),
+        ("quality.blur_regions", "2", True),
+        ("quality.blur_regions", "2.0", True),
+        ("quality.blur_regions", "3", False),
+    ],
+)
+def test_los_valores_citados_como_cadena_se_interpretan_segun_el_tipo(
+    signal_id: str, cited: str, faithful: bool
+):
+    """El modelo devuelve todo como cadena porque el esquema de Gemini no
+    admite una union de tipos; la interpretacion pasa a ser cosa del
+    auditor y no puede ablandar la comprobacion."""
+    report = audit_citations(decide(ground(signal_id, cited)), build_signals())
+
+    assert report.faithful is faithful
 
 
 def test_un_contador_se_compara_exacto():
