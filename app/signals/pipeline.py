@@ -178,6 +178,34 @@ def _front_signals(front_fields: FrontFields) -> list[Signal]:
     return signals
 
 
+def _coverage_signal(front_fields: FrontFields) -> Signal:
+    """Cuantos campos del anverso no se han podido localizar.
+
+    Distingue dos situaciones que en las demas senales se ven casi
+    identicas: un documento retocado y un documento con un campo tapado.
+    Los dos producen una contradiccion con la MRZ, pero el segundo deja
+    huecos ademas.
+
+    El caso que lo motivo: con la fecha de nacimiento tapada, el OCR leyo
+    en su sitio la fecha de expedicion de la linea siguiente y la dio por
+    buena **con confianza 0.96**, porque el texto estaba nitido -- solo que
+    era el texto equivocado. La confianza no puede detectar eso; la
+    cobertura si, porque al desplazarse la lectura queda un campo sin
+    localizar al final.
+    """
+    faltan = [name for name in PUBLISHED_FIELDS if front_fields.get(name) is None]
+    return Signal(
+        "ocr.fields_missing",
+        SignalKind.COUNT,
+        "Cuantos de los cinco campos clave del anverso no se localizaron. "
+        f"Los que faltan: {', '.join(faltan) if faltan else 'ninguno'}. "
+        "Si falta alguno, parte de la evidencia no esta y conviene "
+        "desconfiar de las contradicciones: pueden venir de que la lectura "
+        "se haya desplazado, no de que el documento mienta.",
+        value=len(faltan),
+    )
+
+
 def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signal]:
     signals: list[Signal] = []
     for result in cross_check(front_fields, mrz):
@@ -215,6 +243,7 @@ def build_signals(
     signals += _quality_signals(front, back)
     signals += _mrz_signals(reading, mrz)
     signals += _front_signals(front_fields)
+    signals.append(_coverage_signal(front_fields))
     signals += _cross_signals(front_fields, mrz)
 
     expired = is_expired(front_fields, mrz, today)
