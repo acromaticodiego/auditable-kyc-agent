@@ -16,6 +16,7 @@ import pytest
 
 from app.signals.mrz import (
     MrzError,
+    character_value,
     build_td1,
     check_digit,
     parse_mrz,
@@ -147,3 +148,25 @@ def test_un_documento_ya_caducado_sigue_siendo_legible():
 
 def test_una_fecha_imposible_no_revienta():
     assert parse_mrz_date("999999", prefer_past=True) is None
+
+
+def test_las_letras_valen_de_10_a_35_aunque_el_digito_no_lo_note():
+    """Anclado aparte a proposito.
+
+    El +10 de las letras no afecta a `check_digit`: desplaza la suma en 10
+    por el peso, y 70, 30 y 10 son cero modulo 10.  Una implementacion con
+    las letras de 0 a 25 pasaria todos los demas tests de este fichero.  Se
+    fija aqui para que deje de ser invisible en cuanto alguien use
+    `character_value` para otra cosa.
+    """
+    assert character_value("0") == 0
+    assert character_value("9") == 9
+    assert character_value("A") == 10
+    assert character_value("D") == 13
+    assert character_value("Z") == 35
+    assert character_value("<") == 0
+
+
+def test_un_caracter_imposible_en_una_mrz_se_rechaza():
+    with pytest.raises(MrzError, match="caracter no valido"):
+        character_value("ñ")

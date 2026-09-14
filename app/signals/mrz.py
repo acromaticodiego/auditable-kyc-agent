@@ -45,6 +45,18 @@ class MrzError(ValueError):
 
 
 def character_value(character: str) -> int:
+    """Valor de un caracter segun ICAO: digitos su valor, A-Z de 10 a 35.
+
+    Curiosidad util para quien venga a tocar esto: el +10 de las letras es
+    **invisible** para `check_digit`, porque desplaza la suma en 10 por el
+    peso y 70, 30 y 10 son todos cero modulo 10.  Una version con las
+    letras valiendo de 0 a 25 calcularia exactamente los mismos digitos de
+    control y ningun test sobre MRZ podria distinguirla.
+
+    Se mantiene el valor correcto de todas formas, y con un test propio,
+    porque en cuanto alguien use esta funcion para algo que no sea la suma
+    modulo 10 el error dejaria de ser invisible.
+    """
     if character == "<":
         return 0
     if character.isdigit():
