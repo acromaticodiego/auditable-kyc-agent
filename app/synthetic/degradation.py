@@ -86,6 +86,29 @@ def occlude(
     return copy
 
 
+def blur_region(
+    image: Image.Image,
+    box: tuple[float, float, float, float],
+    radius: float = 3.0,
+) -> Image.Image:
+    """Emborrona solo una zona, en fracciones del tamano.
+
+    Sirve para el caso en que un campo concreto queda ilegible mientras el
+    resto del documento se lee perfectamente: el OCR entonces devuelve algo
+    para ese campo, con confianza baja, y hay que decidir si esa
+    discrepancia es del documento o de la lectura.
+    """
+    copy = image.convert("RGB").copy()
+    region = (
+        int(box[0] * copy.width),
+        int(box[1] * copy.height),
+        int(box[2] * copy.width),
+        int(box[3] * copy.height),
+    )
+    copy.paste(copy.crop(region).filter(ImageFilter.GaussianBlur(radius)), region[:2])
+    return copy
+
+
 def crop_edge(image: Image.Image, side: str = "bottom", fraction: float = 0.12) -> Image.Image:
     """Encuadre que se come un borde del documento.
 

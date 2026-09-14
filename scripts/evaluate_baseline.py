@@ -93,7 +93,7 @@ def main() -> int:
         "  se eligieron sobre esos mismos casos. El de la derecha es la medida."
     )
     print(
-        "\n  Muestra: 18 casos sinteticos derivados de una sola identidad. Sirve\n"
+        "\n  Muestra: " + str(calibracion["total"] + reservado["total"]) + " casos sinteticos de una sola identidad. Sirve\n"
         "  para comparar la linea base con el agente sobre el mismo material, no\n"
         "  para prever el comportamiento con documentos reales."
     )

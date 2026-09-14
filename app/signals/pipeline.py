@@ -18,6 +18,7 @@ from datetime import date
 from PIL import Image
 
 from app.signals.cross_check import CrossStatus, cross_check, is_expired
+from app.signals.ocr_front import parse_place_and_date, parse_spanish_date
 from app.signals.mrz import MrzData
 from app.signals.ocr_front import FrontFields, read_front
 from app.signals.ocr_mrz import MrzReading, read_mrz
@@ -230,6 +231,99 @@ def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signa
     return signals
 
 
+def _document_signals(
+    front_fields: FrontFields, mrz: MrzData | None, today: date
+) -> list[Signal]:
+    """Coherencia interna del documento y reglas de negocio sobre las fechas.
+
+    Son senales que no comparan dos copias del mismo dato sino que miran si
+    lo que dice el documento tiene sentido por si solo. Un documento
+    expedido despues de caducar no contradice a nadie: simplemente es
+    imposible, y ninguna comprobacion de las anteriores lo ve.
+    """
+    birth = (mrz.birth_date if mrz else None) or parse_spanish_date(
+        front_fields.value("birth_date") or ""
+    )
+    expiry = (mrz.expiry_date if mrz else None) or parse_spanish_date(
+        front_fields.value("expiry_date") or ""
+    )
+    issue, _ = parse_place_and_date(front_fields.value("issue") or "")
+
+    signals: list[Signal] = []
+
+    if birth is not None:
+        edad = today.year - birth.year - (
+            (today.month, today.day) < (birth.month, birth.day)
+        )
+        signals.append(
+            Signal(
+                "document.age_years",
+                SignalKind.COUNT,
+                f"Edad del titular a fecha de {today.isoformat()}, calculada "
+                "desde la fecha de nacimiento. En banca importa: un menor de "
+                "edad no puede abrir una cuenta en las mismas condiciones que "
+                "un adulto, y eso no lo decide el sistema de verificacion.",
+                value=edad,
+            )
+        )
+    else:
+        signals.append(
+            Signal(
+                "document.age_years",
+                SignalKind.COUNT,
+                "Edad del titular.",
+                unavailable_reason="no se pudo leer la fecha de nacimiento",
+            )
+        )
+
+    if expiry is not None:
+        signals.append(
+            Signal(
+                "document.days_to_expiry",
+                SignalKind.COUNT,
+                "Dias que faltan para que el documento caduque; negativo si ya "
+                "caduco. Un documento a punto de vencer sigue siendo valido.",
+                value=(expiry - today).days,
+            )
+        )
+    else:
+        signals.append(
+            Signal(
+                "document.days_to_expiry",
+                SignalKind.COUNT,
+                "Dias hasta la caducidad.",
+                unavailable_reason="no se pudo leer la fecha de expiracion",
+            )
+        )
+
+    if issue is not None and expiry is not None and birth is not None:
+        coherentes = birth < issue < expiry
+        signals.append(
+            Signal(
+                "document.dates_coherent",
+                SignalKind.FLAG,
+                f"Si las tres fechas del documento tienen sentido entre si: "
+                f"nacimiento ({birth.isoformat()}) antes de expedicion "
+                f"({issue.isoformat()}) antes de expiracion "
+                f"({expiry.isoformat()}). Un documento expedido despues de "
+                "caducar no contradice a ninguna otra copia del dato: "
+                "simplemente es imposible.",
+                value=coherentes,
+            )
+        )
+    else:
+        signals.append(
+            Signal(
+                "document.dates_coherent",
+                SignalKind.FLAG,
+                "Si las tres fechas del documento tienen sentido entre si.",
+                unavailable_reason="falta alguna de las tres fechas",
+            )
+        )
+
+    return signals
+
+
 def build_signals(
     front: Image.Image, back: Image.Image, today: date | None = None
 ) -> SignalSet:
@@ -245,6 +339,8 @@ def build_signals(
     signals += _front_signals(front_fields)
     signals.append(_coverage_signal(front_fields))
     signals += _cross_signals(front_fields, mrz)
+
+    signals += _document_signals(front_fields, mrz, today)
 
     expired = is_expired(front_fields, mrz, today)
     signals.append(

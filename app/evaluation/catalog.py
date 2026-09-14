@@ -31,6 +31,7 @@ from app.evaluation.split import CALIBRATION, check_access, split_of
 from app.synthetic.cedula import CedulaData, render_back, render_front
 from app.synthetic.degradation import (
     blur,
+    blur_region,
     crop_edge,
     downscale,
     glare,
@@ -345,8 +346,146 @@ def _bad_capture() -> list[Case]:
     ]
 
 
+def _hard() -> list[Case]:
+    """Casos que las reglas fijas no pueden resolver bien.
+
+    Se anadieron despues de medir la linea base, que acerto 8 de 9 en el
+    reservado. Ese resultado no era una buena noticia: significaba que las
+    senales deterministas resolvian casi todo el conjunto ellas solas, y que
+    comparar el agente contra ellas no iba a informar de nada.
+
+    Aqui estan ademas los primeros casos de escalado a revision humana. El
+    catalogo no tenia ninguno pese a que el contrato define cuatro
+    decisiones: se estaba midiendo un sistema de tres salidas y llamandolo
+    de cuatro.
+    """
+    return [
+        Case(
+            id="ambiguo-apellido-difiere-una-letra",
+            description="El apellido impreso y el de la MRZ difieren en una letra.",
+            expected_decision=DecisionKind.ESCALATE_TO_HUMAN,
+            reason=(
+                "Todo lo demas cuadra: el NUIP, las dos fechas, el sexo y los "
+                "cuatro digitos de control. Solo el apellido baila una letra. "
+                "Puede ser una manipulacion torpe, un fallo del OCR o una "
+                "transliteracion del propio documento. Rechazar por esto es "
+                "desproporcionado y aprobarlo es negligente: es justo el caso "
+                "para el que existe la revision humana. Las reglas fijas no "
+                "pueden distinguirlo porque solo ven que hay una contradiccion."
+            ),
+            build=lambda: pair(*retouch_front(person(), surnames="WALTEROZ")),
+            tags=("ambiguo", "fraude", "mrz"),
+            is_fraud=True,
+            ambiguous=True,
+        ),
+        Case(
+            id="ambiguo-sexo-no-coincide",
+            description="El sexo impreso no coincide con el de la MRZ.",
+            expected_decision=DecisionKind.ESCALATE_TO_HUMAN,
+            reason=(
+                "Un campo de una sola letra donde el OCR se equivoca con "
+                "facilidad, y a la vez un dato que un falsificador cambiaria "
+                "en un documento robado. El sexo tampoco entra en ningun "
+                "digito de control de la MRZ, asi que no hay nada que zanje "
+                "la duda. Con todo lo demas cuadrando, lo sensato es que lo "
+                "mire una persona."
+            ),
+            build=lambda: pair(*retouch_front(person(), sex="M")),
+            tags=("ambiguo", "fraude", "mrz"),
+            is_fraud=True,
+            ambiguous=True,
+        ),
+        Case(
+            id="ambiguo-menor-de-edad",
+            description="Documento autentico de una persona de 16 anos.",
+            expected_decision=DecisionKind.ESCALATE_TO_HUMAN,
+            reason=(
+                "El documento es impecable y la persona es quien dice ser. Lo "
+                "que falla no es la identidad sino la elegibilidad: un menor "
+                "no abre una cuenta en las mismas condiciones que un adulto, y "
+                "eso no lo decide un sistema de verificacion de documentos. "
+                "Rechazar seria decirle que su cedula no vale, que es falso. "
+                "Las reglas fijas ni siquiera miran la edad y lo aprueban."
+            ),
+            build=lambda: pair(person(birth_date=date(2010, 5, 20))),
+            tags=("ambiguo", "elegibilidad"),
+            ambiguous=True,
+        ),
+        Case(
+            id="incoherencia-expedicion-posterior-a-expiracion",
+            description="El documento dice haberse expedido despues de caducar.",
+            expected_decision=DecisionKind.REJECT,
+            reason=(
+                "Expedido en 2035 y caduca en 2032. No hay contradiccion entre "
+                "el anverso y la MRZ, porque la MRZ no lleva la fecha de "
+                "expedicion, ni falla ningun digito de control, asi que todas "
+                "las comprobaciones anteriores lo dan por bueno. Simplemente "
+                "es imposible, y un documento imposible no se aprueba."
+            ),
+            build=lambda: pair(
+                person(issue_date=date(2035, 1, 10), expiry_date=date(2032, 4, 19))
+            ),
+            tags=("incoherencia",),
+        ),
+        Case(
+            id="ambiguo-nuip-borroso-contradice",
+            description="El NUIP esta emborronado y el OCR lo lee distinto de la MRZ.",
+            expected_decision=DecisionKind.REQUEST_RESUBMISSION,
+            reason=(
+                "El resto del documento se lee perfectamente y la MRZ cuadra, "
+                "pero la zona del NUIP esta movida y lo que el OCR saca de ahi "
+                "no coincide con la MRZ. La contradiccion es real y su origen "
+                "casi seguro es la lectura, no el documento: la pista esta en "
+                "la confianza del campo y no en que haya discrepancia. Una "
+                "regla que solo mire si hay contradiccion rechaza a una "
+                "persona honesta por una foto regular."
+            ),
+            build=lambda: (
+                blur_region(render_front(person()), (0.58, 0.11, 0.92, 0.20), 4.0),
+                render_back(person()),
+            ),
+            tags=("ambiguo", "captura"),
+            ambiguous=True,
+        ),
+        Case(
+            id="ambiguo-expira-en-pocos-dias",
+            description="Documento valido que caduca dentro de once dias.",
+            expected_decision=DecisionKind.APPROVE,
+            reason=(
+                "Vigente es vigente. Caduca pronto, pero rechazar o escalar un "
+                "documento que todavia vale seria inventarse una politica que "
+                "nadie ha dictado. Esta en el conjunto para comprobar que ni "
+                "las reglas ni el agente se ponen creativos con un caso que "
+                "parece limitrofe y no lo es."
+            ),
+            build=lambda: pair(person(expiry_date=date(2026, 9, 25))),
+            tags=("ambiguo", "limite"),
+            ambiguous=True,
+        ),
+        Case(
+            id="ambiguo-reflejo-fuerte-sin-tapar-nada",
+            description="Reflejo intenso en una esquina, sin tapar ningun campo.",
+            expected_decision=DecisionKind.APPROVE,
+            reason=(
+                "El reflejo dispara la senal de brillo por encima del umbral "
+                "que usa la linea base, pero cae en la esquina inferior "
+                "derecha y no tapa un solo dato: todos los campos se leen y "
+                "todos cuadran con la MRZ. Una regla de umbral pide otra foto "
+                "sin necesidad; leer que la cobertura es completa y que no hay "
+                "contradicciones deberia bastar para aprobar."
+            ),
+            build=lambda: (
+                glare(render_front(person()), center=(0.86, 0.80), radius=0.16),
+                render_back(person()),
+            ),
+            tags=("ambiguo", "captura"),
+            ambiguous=True,
+        ),
+    ]
+
+
 def build_catalog() -> list[Case]:
-    cases = _legitimate() + _tampered() + _expired() + _bad_capture()
+    cases = _legitimate() + _tampered() + _expired() + _bad_capture() + _hard()
 
     identifiers = [case.id for case in cases]
     if len(set(identifiers)) != len(identifiers):

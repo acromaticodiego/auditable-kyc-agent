@@ -77,7 +77,7 @@ def test_cada_caso_cae_en_una_mitad_y_solo_una():
 @pytest.mark.parametrize(
     ("split", "final"), [(CALIBRATION, False), (HOLDOUT, True)]
 )
-def test_cada_mitad_cubre_las_tres_decisiones(split, final):
+def test_cada_mitad_cubre_las_cuatro_decisiones(split, final):
     """Una mitad sin casos de rechazo, por ejemplo, daria una tasa de
     acierto que no dice nada sobre la capacidad de rechazar."""
     casos = load_cases(split, final_measurement=final)
@@ -86,6 +86,10 @@ def test_cada_mitad_cubre_las_tres_decisiones(split, final):
     assert DecisionKind.APPROVE in decisiones
     assert DecisionKind.REJECT in decisiones
     assert DecisionKind.REQUEST_RESUBMISSION in decisiones
+    # El escalado se anadio tarde: el catalogo vivio dieciocho casos sin un
+    # solo caso de revision humana, midiendo un sistema de tres salidas y
+    # llamandolo de cuatro.
+    assert DecisionKind.ESCALATE_TO_HUMAN in decisiones
 
 
 @pytest.mark.parametrize(

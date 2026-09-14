@@ -191,3 +191,59 @@ def test_ningun_caso_revienta_el_pipeline(caso_id):
     senales = build_signals(*caso.build(), today=TODAY)
 
     assert len(senales) > 10
+
+
+# --- Coherencia interna del documento ------------------------------------
+
+
+def test_la_edad_sale_de_la_fecha_de_nacimiento():
+    """En banca importa: un menor no abre una cuenta en las mismas
+    condiciones que un adulto, y eso no lo decide el verificador."""
+    caso = next(c for c in build_catalog() if c.id == "ambiguo-menor-de-edad")
+    senales = build_signals(*caso.build(), today=TODAY)
+
+    assert senales.get("document.age_years").value == 16
+
+
+def test_un_documento_expedido_despues_de_caducar_es_incoherente():
+    """No contradice a ninguna otra copia del dato -- la MRZ no lleva la
+    fecha de expedicion -- ni rompe ningun digito de control. Todas las
+    demas comprobaciones lo dan por bueno."""
+    caso = next(
+        c
+        for c in build_catalog()
+        if c.id == "incoherencia-expedicion-posterior-a-expiracion"
+    )
+    senales = build_signals(*caso.build(), today=TODAY)
+
+    assert senales.get("document.dates_coherent").value is False
+    assert senales.get("mrz.checks_ok").value is True
+    assert contradictions(senales) == []
+
+
+def test_los_dias_hasta_caducar_son_negativos_si_ya_caduco():
+    caso = next(c for c in build_catalog() if c.id == "caducado-legible")
+    senales = build_signals(*caso.build(), today=TODAY)
+
+    assert senales.get("document.days_to_expiry").value < 0
+    assert senales.get("document.expired").value is True
+
+
+def test_un_documento_a_punto_de_caducar_sigue_vigente():
+    """Vigente es vigente: la senal lo dice y no se convierte en rechazo."""
+    caso = next(c for c in build_catalog() if c.id == "ambiguo-expira-en-pocos-dias")
+    senales = build_signals(*caso.build(), today=TODAY)
+
+    assert 0 < senales.get("document.days_to_expiry").value <= 15
+    assert senales.get("document.expired").value is False
+
+
+def test_sin_fechas_legibles_las_senales_de_coherencia_no_estan():
+    """No disponible no es lo mismo que incoherente."""
+    caso = next(c for c in build_catalog() if c.id == "captura-borrosa-fuerte")
+    senales = build_signals(*caso.build(), today=TODAY)
+
+    coherencia = senales.get("document.dates_coherent")
+    assert coherencia is not None
+    if not coherencia.available:
+        assert coherencia.unavailable_reason
