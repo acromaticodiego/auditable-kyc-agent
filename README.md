@@ -8,8 +8,9 @@ con fundamentos que citan la señal concreta que los sostiene.
 > **Estado: en construcción.** Funcionan el contrato de decisión, la
 > verificación de citas, el cliente del modelo con caché y presupuesto, la
 > lectura de la MRZ, el generador de cédulas sintéticas y un catálogo de
-> 18 casos etiquetados. Falta lo que los une: OCR, reconocimiento facial y
-> el endpoint de verificación.
+> 25 casos etiquetados, el extractor completo (OCR del anverso, MRZ del
+> reverso y cotejo entre ambos) y una línea base de reglas fijas ya medida.
+> Falta el agente, el reconocimiento facial y el endpoint de verificación.
 
 ## La idea
 
@@ -256,9 +257,10 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   documentos reales.
 - El conjunto vivió 18 casos **sin un solo caso de escalado a revisión
   humana**, midiendo un sistema de tres salidas y llamándolo de cuatro.
-- La partición quedó desbalanceada: 2 fraudes en calibración y 4 en el
-  reservado. Con 18 casos el hash no reparte fino; se corregirá creciendo
-  el catálogo, no tocando la partición.
+- La partición está desbalanceada: 4 fraudes en calibración y 6 en el
+  reservado, y el escalado a revisión humana cae 2 contra 1. El hash no
+  reparte fino con tan pocos casos; se corrige creciendo el catálogo, no
+  tocando la partición.
 - El retrato es un marcador, no una cara. Hasta que haya fotos reales, la
   similitud facial no existe como señal.
 - La API rechaza modelos que su propio `ListModels` sigue listando, de
