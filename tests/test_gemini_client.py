@@ -6,6 +6,9 @@ que NO se prueba aqui es si el modelo de verdad respeta el esquema; eso
 solo lo contesta una llamada real (scripts/probe_gemini.py).
 """
 
+import datetime
+import json
+
 import httpx
 import pytest
 
@@ -355,8 +358,6 @@ def test_el_conteo_sobrevive_al_proceso(tmp_path):
 
 
 def test_el_conteo_de_ayer_no_gasta_el_cupo_de_hoy(tmp_path):
-    import datetime
-
     path = tmp_path / "budget.json"
     ayer = RequestBudget(path, today=datetime.date(2026, 9, 13))
     ayer.record("gemini-test")
@@ -404,3 +405,44 @@ def test_la_huella_de_la_clave_no_contiene_la_clave(tmp_path):
     assert clave not in contenido
     assert "clave-secreta" not in contenido
     assert huella in contenido
+
+
+def test_cuenta_las_peticiones_anotadas_con_el_formato_viejo(tmp_path):
+    """El fichero de conteo sobrevive al cambio de formato de la clave.
+
+    Paso de verdad y el mismo dia: al empezar a repartir el conteo por
+    clave, las 20 peticiones que ya se habian gastado quedaron anotadas
+    bajo el nombre del modelo a secas, y el contador nuevo las leyo como
+    cero.  Decia que quedaban 20 cuando no quedaba ninguna, que es
+    exactamente la ceguera que este contador existe para evitar.
+    """
+    path = tmp_path / "budget.json"
+    path.write_text(
+        json.dumps({"2026-09-14": {"gemini-test": 20}}), encoding="utf-8"
+    )
+    budget = RequestBudget(
+        path, today=datetime.date(2026, 9, 14), account="aaaaaaaaaaaa"
+    )
+
+    assert budget.spent("gemini-test") == 20
+    assert budget.remaining("gemini-test") == 0
+    with pytest.raises(BudgetExhausted):
+        budget.ensure_available("gemini-test")
+
+
+def test_el_saldo_viejo_se_suma_al_de_la_clave_actual(tmp_path):
+    """Las anotaciones de los dos formatos cuentan juntas, no una u otra.
+
+    Si el formato viejo solo se leyera cuando el nuevo esta a cero, la
+    primera peticion del dia borraria de la vista todo el saldo anterior.
+    """
+    path = tmp_path / "budget.json"
+    path.write_text(
+        json.dumps({"2026-09-14": {"gemini-test": 3}}), encoding="utf-8"
+    )
+    budget = RequestBudget(
+        path, today=datetime.date(2026, 9, 14), account="aaaaaaaaaaaa"
+    )
+    budget.record("gemini-test")
+
+    assert budget.spent("gemini-test") == 4

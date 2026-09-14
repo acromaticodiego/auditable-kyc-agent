@@ -70,6 +70,23 @@ class RequestBudget:
     def _slot(self, model: str) -> str:
         return f"{self.account}:{model}"
 
+    def _legacy_slot(self, model: str) -> str:
+        """Como se anotaba antes de repartir el conteo por clave.
+
+        Existe por un fallo real y del mismo dia: al pasar de anotar por
+        modelo a anotar por clave y modelo, las peticiones ya gastadas
+        quedaron bajo la clave vieja y el contador nuevo leyo cero.  Habia
+        20 peticiones gastadas y `remaining` decia 20, que es justo la
+        ceguera que este modulo existe para evitar.
+
+        Las entradas viejas se suman a las de cualquier clave que pregunte.
+        Si dos claves distintas heredan el mismo saldo viejo, el contador
+        sera PESIMISTA y avisara antes de tiempo.  Ese es el sentido
+        correcto del error: pasarse de prudente cuesta una ejecucion
+        pospuesta, quedarse corto cuesta el cupo del dia entero.
+        """
+        return model
+
     @property
     def today(self) -> str:
         return (self._today or datetime.now(UTC).date()).isoformat()
@@ -86,7 +103,8 @@ class RequestBudget:
         return data if isinstance(data, dict) else {}
 
     def spent(self, model: str) -> int:
-        return self._load().get(self.today, {}).get(self._slot(model), 0)
+        day = self._load().get(self.today, {})
+        return day.get(self._slot(model), 0) + day.get(self._legacy_slot(model), 0)
 
     def remaining(self, model: str) -> int | None:
         if self.daily_limit is None:
