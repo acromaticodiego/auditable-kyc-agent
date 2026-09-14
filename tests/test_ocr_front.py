@@ -84,6 +84,30 @@ def test_el_valor_de_un_campo_no_es_su_propio_rotulo():
     assert "expiraci" not in (campos.value("expiry_date") or "").lower()
 
 
+def test_la_altura_de_una_fila_es_la_mediana_y_no_la_de_su_primera_palabra():
+    """Anclado como test unitario a proposito.
+
+    Mutar `row_middle` para que devuelva el centro de la primera palabra no
+    hace fallar ningun test de comportamiento, porque el otro arreglo del
+    mismo bug -- excluir explicitamente la fila del rotulo al buscar su
+    valor -- ya cubre el caso en este documento. Es defensa en profundidad:
+    una palabra alta y desplazada, como la firma manuscrita o el ruido que
+    el OCR inventa sobre el retrato fantasma, no debe poder mover la altura
+    de la fila entera.
+    """
+    from app.signals.ocr_front import Word, row_middle
+
+    fila = [
+        Word(text="Ossa", conf=96, left=121, top=538, width=60, height=22),
+        Word(text="Fecha", conf=96, left=332, top=533, width=48, height=12),
+        Word(text="de", conf=96, left=383, top=536, width=20, height=9),
+        Word(text="expiracion", conf=96, left=408, top=532, width=90, height=16),
+    ]
+
+    assert row_middle(fila) == 540  # mediana
+    assert row_middle(fila) != fila[0].middle  # y no los 549 de "Ossa"
+
+
 # --- El respaldo por orden ------------------------------------------------
 
 

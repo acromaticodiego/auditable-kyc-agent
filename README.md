@@ -100,6 +100,40 @@ una sola foto real. Y un detalle que delata lo artificial del banco: un
 desenfoque leve (9/10) **lee mejor que la imagen limpia** (7/10), porque
 suaviza el aliasing del renderizado. Eso no pasa con documentos de verdad.
 
+### Lectura del anverso — las mismas 70 imágenes
+
+| campo | anclado solo en rótulos | con respaldo por orden |
+|---|---|---|
+| NUIP | 59/70 | 59/70 |
+| apellidos | 30/70 | **60/70** |
+| nombres | 23/70 | **59/70** |
+| fecha de nacimiento | 30/70 | **60/70** |
+| fecha de expiración | 24/70 | **58/70** |
+| fecha de expedición | 20/70 | **60/70** |
+| sexo | 20/70 | 20/70 |
+| nacionalidad | 27/70 | 27/70 |
+
+La extracción se ancla en los rótulos impresos («Apellidos», «Nombres»…)
+en vez de en coordenadas fijas, para no construir un lector que funcione
+solo con las imágenes de casa. Medirlo destapó que ese anclaje era el
+punto débil: con un desenfoque de radio 1,5 los rótulos —gris claro,
+cuerpo pequeño— desaparecen y el extractor pasaba de once campos a uno.
+
+La conclusión fácil habría sido «el anverso no se puede leer con esa
+calidad», y era falsa: **los valores seguían leyéndose con confianza de 90
+y pico**, en negrita y más grandes. El problema no era la imagen sino de
+dónde colgaba la lectura. El respaldo usa el orden vertical de los campos,
+que en la cédula es fijo, y cada campo viaja marcado con su procedencia:
+leído bajo su rótulo, o deducido.
+
+El sexo y la nacionalidad siguen dependiendo de su rótulo y se quedan
+donde estaban. Queda medido y sin tapar.
+
+**La confianza de Tesseract sirve**: 0,895 de media en las 403 lecturas
+correctas frente a 0,561 en las 27 equivocadas. Es lo único observable en
+producción, porque el anverso no tiene forma de delatar una lectura
+errónea: no hay dígitos de control ni redundancia, a diferencia de la MRZ.
+
 ### Decisiones del agente
 
 - **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,
