@@ -123,10 +123,21 @@ def test_un_reflejo_se_detecta_caiga_donde_caiga(centro):
 
 
 @pytest.mark.parametrize(
-    "degradacion",
-    [lambda i: i, lambda i: blur(i, 6.0), lambda i: downscale(i, 5.0)],
+    ("nombre", "degradacion"),
+    [
+        ("intacta", lambda i: i),
+        ("desenfoque", lambda i: blur(i, 6.0)),
+        ("baja resolucion", lambda i: downscale(i, 5.0)),
+        ("giro", lambda i: rotate(i, 5.0)),
+        # Las dos compresiones son el caso que motivo esta medida y por eso
+        # tienen que estar aqui: sin ellas, una version que se quedara con
+        # el bloque peor sin restarle la mediana pasaba la suite entera, y
+        # un JPEG de calidad 4 habria contado como reflejo perfecto.
+        ("jpeg q=8", lambda i: jpeg_artifacts(i, 8)),
+        ("jpeg q=4", lambda i: jpeg_artifacts(i, 4)),
+    ],
 )
-def test_lo_que_no_es_un_reflejo_no_lo_parece(degradacion):
+def test_lo_que_no_es_un_reflejo_no_lo_parece(nombre, degradacion):
     assert glare_contrast(degradacion(card())) < 0.3
 
 
