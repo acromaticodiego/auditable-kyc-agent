@@ -41,6 +41,23 @@ Invoke-RestMethod http://localhost:8000/health
 docker compose exec api pytest -q
 ```
 
+Una verificación completa, con las dos caras del documento:
+
+```powershell
+curl.exe -X POST http://localhost:8000/verificaciones `
+  -F "anverso=@anverso.png;type=image/png" `
+  -F "reverso=@reverso.png;type=image/png"
+```
+
+Devuelve `201` con la decisión, su resumen y **cada fundamento junto al
+veredicto de su auditoría**. `GET /verificaciones/{id}` añade las 28
+señales tal como se midieron, que es lo que permite contrastar las citas
+más tarde. Las imágenes no se guardan: solo su SHA-256.
+
+Si el modelo falla o se acaba el cupo, la respuesta **sigue siendo 201**
+con `escalate_to_human`. El proveedor falló, pero el sistema decidió; ver
+[ADR-0004](docs/adr/0004-que-hace-el-sistema-cuando-el-agente-no-contesta.md).
+
 ## Decisiones de diseño
 
 Las decisiones que costaron discusión están en [docs/adr/](docs/adr/), con
@@ -54,6 +71,9 @@ lo que se descartó y por qué.
   de ser prosa que hay que creerse.
 - [ADR-0003](docs/adr/0003-la-mrz-como-senal-dura.md) — por qué se lee la
   MRZ del reverso, qué detecta de verdad y qué no.
+- [ADR-0004](docs/adr/0004-que-hace-el-sistema-cuando-el-agente-no-contesta.md)
+  — por qué un agente que no contesta escala a un humano en vez de aprobar
+  o rechazar, y cuánto cuesta esa elección.
 
 ## Métricas
 
@@ -201,7 +221,46 @@ La línea base cita señales y pasa por el mismo verificador que el agente.
 Si pudiera explicarse sin citar nada verificable, la comparación sería
 injusta a su favor.
 
-### Decisiones del agente
+### El agente frente a la línea base — 12 casos de calibración
+
+Primera medición completa del agente sobre el conjunto de **calibración**,
+con `gemini-3.1-flash-lite`, los 12 casos contestados. **No es el número
+que se publica**: la calibración es donde se ajusta el prompt, y el corte
+que vale es el reservado, que sigue sin tocarse.
+
+| | |
+|---|---|
+| Agente | **8/12** |
+| Línea base de reglas fijas, **los mismos 12 casos** | **9/12** |
+| Explicaciones fieles | **12/12** |
+| Citas verificadas una a una | **38/38 correctas** |
+
+**Un `if/else` le gana al agente.** Y el 9/12 de la línea base todavía está
+inflado, porque sus umbrales se eligieron mirando estos mismos casos.
+
+Lo que el agente sí hace impecable es lo que este proyecto dice que
+importa: 38 citas, ninguna inventada, ningún valor mal atribuido. La
+explicación se sostiene aunque la decisión no siempre acierte.
+
+Los 4 fallos no están repartidos al azar. **Tres de los cuatro son el mismo
+comportamiento: escalar en vez de comprometerse** — dos `reject` y un
+`request_resubmission` convertidos en `escalate_to_human`. En los dos
+fraudes ve la contradicción entre anverso y MRZ, la describe bien, y aun
+así pide revisión humana «para descartar manipulación o error de lectura».
+
+El cuarto va en la dirección peligrosa y señala un hueco del prompt: en
+`ambiguo-menor-de-edad` **aprobó**. La señal `document.age_years` lleva
+escrito que un menor no abre cuenta igual que un adulto, pero el menú de
+decisiones del prompt está redactado entero en términos de identidad y
+autenticidad. Un documento auténtico de alguien no elegible no tiene
+casilla donde caer, y el agente hizo lo coherente con lo que se le dijo.
+
+La primera versión de este informe comparaba el `8/12` del agente con el
+`9/12` de la línea base sobre el conjunto entero — denominadores distintos
+sobre casos distintos. Ahora los dos números salen siempre sobre los mismos
+casos.
+
+### La sonda de contrato — 3 casos
 
 - **3 casos ejecutados contra la API real** con `gemini-3.1-flash-lite`,
   una petición cada uno. Los 3 respetaron el esquema de respuesta y
@@ -217,6 +276,15 @@ injusta a su favor.
   lo que descarta que sea una ventana por minuto.
 - **Un 503 de sobrecarga consume cupo.** Doce peticiones fallidas en dos
   minutos agotaron el día entero sin producir una decisión. Ver ADR-0001.
+- **El contador de cupo falló dos veces, y las dos las pagó el proyecto.**
+  Primero cortaba el día en medianoche **UTC** cuando Google lo corta en la
+  del **Pacífico**: a las 00:00:29 UTC el contador estrenó día y concedió
+  20 peticiones mientras el proveedor seguía contando las anteriores.
+  Segundo, la cuenta previa del coste de una tanda ignoraba los reintentos,
+  y un 503 cuesta dos peticiones: un plan de 10 gastó 22 y no midió un solo
+  caso. Ambos corregidos, con tests que fijan los dos lados de la frontera
+  horaria. Por eso existe `scripts/probe_model.py`, que gasta **una**
+  petición para saber si un modelo responde hoy antes de fiarle una tanda.
 
 ## El conjunto de evaluación
 
@@ -265,3 +333,17 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   similitud facial no existe como señal.
 - La API rechaza modelos que su propio `ListModels` sigue listando, de
   modo que elegir modelo automáticamente no es fiable.
+- **La medición de calibración se hizo con `gemini-3.1-flash-lite`, que no
+  es el modelo configurado** (`gemini-3.5-flash`). Se llegó a él por
+  descarte: 3.5 y 3.8 sin cupo, 3.7 devolviendo 503. Comparar ese 8/12 con
+  una medición futura hecha con otro modelo sería comparar dos sistemas.
+- **El endpoint no se ha ejercitado en vivo con una respuesta buena del
+  modelo.** Contra el servidor levantado sí se comprobó el camino completo
+  —subida, OCR, agente, escritura y lectura del registro— pero el agente
+  acabó en `out_of_quota`. El camino con decisión real está cubierto por
+  tests contra el Postgres de verdad, con el modelo simulado.
+- **No hay migraciones.** Las tablas se crean al arrancar; en cuanto haya
+  datos que no se puedan perder, esto necesita Alembic.
+- No hay autenticación, límite de tamaño de subida ni control de acceso al
+  registro. `GET /verificaciones/{id}` lo lee cualquiera que tenga el
+  identificador.
