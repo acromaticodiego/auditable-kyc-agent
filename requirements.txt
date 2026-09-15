@@ -9,6 +9,10 @@ httpx>=0.27,<1.0
 pillow>=10.0,<12.0
 numpy>=1.26,<3.0
 pytesseract>=0.3.10,<1.0
+# Subida de ficheros en el endpoint de verificacion.  FastAPI no lo trae:
+# sin el, cualquier ruta que reciba un fichero revienta al importarse, no al
+# llamarse, asi que la API entera deja de arrancar.
+python-multipart>=0.0.9,<1.0
 
 # Pruebas
 pytest>=8.3,<9.0
