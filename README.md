@@ -41,6 +41,19 @@ Invoke-RestMethod http://localhost:8000/health
 docker compose exec api pytest -q
 ```
 
+Un recorrido de cuatro actos por lo que hace el sistema, pensado para
+enseñarlo en una pantalla compartida:
+
+```powershell
+docker compose exec api python scripts/demo.py
+```
+
+**Tres de los cuatro actos no tocan la API**, y es deliberado: una demo que
+depende de una llamada en vivo se puede caer delante de quien la está
+viendo. Los dos que de verdad convencen —que el sistema caza una
+manipulación y que caza una suplantación— son deterministas. `--sin-api`
+lo ejecuta sin pedir nada al modelo.
+
 Ensayar la tanda de evaluación entera **sin gastar una sola petición**, para
 comprobar que el arnés funciona antes de quemar el cupo del día:
 
