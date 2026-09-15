@@ -7,8 +7,9 @@ humana -- y la tomo a proposito (ver docs/adr/0004).  Devolver 503 aqui le
 diria al cliente que reintente, y reintentar una verificacion que ya esta
 en la cola de un analista la duplicaria.
 
-Los unicos errores de esta capa son los suyos: que falte un fichero o que
-lo enviado no sea una imagen.
+Los unicos errores de esta capa son los del cliente: que falte un fichero,
+que lo enviado no sea una imagen, o que sea tan grande que procesarla sea
+el ataque.
 """
 
 from __future__ import annotations
