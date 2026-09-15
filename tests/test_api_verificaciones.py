@@ -532,3 +532,38 @@ def test_un_documento_limpio_sale_completo(tmp_path, creadas):
     registro = cliente.get(f"/verificaciones/{cuerpo['id']}").json()
     assert registro["explicacion_completa"] is True
     assert all(not senal["adversa"] for senal in registro["senales"])
+
+
+def test_las_senales_adversas_se_marcan_aunque_el_agente_no_contestara(
+    tmp_path, creadas
+):
+    """Es cuando mas falta hacen: ese expediente lo abre una persona.
+
+    Con el proveedor caido no hay decision y por tanto no hay informe de
+    completitud, pero las senales SI se midieron. Sacar las adversas de ese
+    informe las perdia justo en las verificaciones que acaban en revision
+    humana, que es donde saber que hay una discrepancia es lo unico que hay.
+    """
+    cliente = api(cliente_falso(tmp_path, "sobrecargado", status=503))
+    anverso, reverso = _con_apellido_retocado()
+
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    verificacion_id = uuid.UUID(cuerpo["id"])
+    creadas.append(verificacion_id)
+
+    assert cuerpo["resultado_del_agente"] == "unavailable"
+    assert cuerpo["decision"] == "escalate_to_human"
+
+    registro = cliente.get(f"/verificaciones/{verificacion_id}").json()
+    adversas = [s["signal_id"] for s in registro["senales"] if s["adversa"]]
+    omitidas = [s["signal_id"] for s in registro["senales"] if s["omitida"]]
+
+    assert adversas == ["cross.surnames"]
+    # Nada consta como callado: no hubo explicacion que pudiera callarlo.
+    assert omitidas == []

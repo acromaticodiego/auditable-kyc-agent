@@ -16,6 +16,7 @@ import sqlalchemy as sa
 
 from app.agent.runner import AgentRun
 from app.domain.citation_audit import CitationStatus
+from app.domain.completeness import adverse_signals
 from app.storage.models import (
     verificacion_fundamentos,
     verificacion_senales,
@@ -44,7 +45,14 @@ def guardar(
 ) -> VerificacionGuardada:
     verificacion_id = uuid.uuid4()
 
-    adversas = set(run.completeness.adverse) if run.completeness else set()
+    # Que una senal juegue en contra no depende de que el agente llegara a
+    # contestar: se mide sobre las senales, no sobre la decision.  Sacarlas
+    # del informe de completitud las perdia justo en las verificaciones sin
+    # decision, que son las que acaban en manos de un analista humano y en
+    # las que saber que hay algo raro es lo unico que hay.
+    adversas = set(adverse_signals(run.signals))
+    # Lo omitido si necesita una decision: sin fundamentos no hay nada que
+    # se haya callado, porque no se dijo nada.
     omitidas = set(run.completeness.omitted) if run.completeness else set()
 
     filas_senales = [
