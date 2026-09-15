@@ -12,6 +12,12 @@ parcial, da doce casos de los que solo tres se midieron y nueve que
 escalaron por falta de cupo, que es un numero sin sentido que ademas invita
 a leerse como si lo tuviera.
 
+La primera version de esa cuenta estaba mal y salio caro.  Contaba una
+peticion por caso, pero el cliente reintenta una vez ante un 503, asi que
+un caso podia costar dos.  Una tanda que el plan cifro en 10 peticiones
+gasto 22 y no midio ni un solo caso: ocho 503 seguidos, cada uno cobrado
+dos veces, y un 429 al final.  De ahi salen las dos reglas de abajo.
+
     docker compose exec api python scripts/evaluate_agent.py
     docker compose exec api python scripts/evaluate_agent.py --final
 """
@@ -56,6 +62,17 @@ def contar_coste(
         for caso in casos
         if not modelo.is_cached(build_prompt(senales[caso.id]), DECISION_RESPONSE_SCHEMA)
     ]
+
+
+def coste_maximo(faltantes: list[Case], modelo: GeminiClient) -> int:
+    """Lo que puede llegar a costar la tanda, no lo que costaria si todo va bien.
+
+    Regla 1 de las dos que dejo el incidente: la cuenta que decide si se
+    empieza tiene que ser la del peor caso.  Un 503 consume cupo igual que
+    una respuesta buena, asi que cada reintento es una peticion mas que
+    nadie habia presupuestado.
+    """
+    return len(faltantes) * (modelo.max_retries + 1)
 
 
 def evaluar(
@@ -181,10 +198,24 @@ def main() -> int:
         api_key=settings.gemini_api_key,
         model=args.modelo,
         cache=ResponseCache(),
+        # Regla 2: en una tanda no se reintenta.
+        #
+        # Fuera de una tanda, reintentar un 503 es razonable.  Dentro, el
+        # reintento se paga con el cupo que necesitan los casos que aun no
+        # se han medido, y ese cambio no es neutral: con doce casos y un
+        # reintento el peor caso son 24 peticiones sobre un tope de 20, o
+        # sea que la tanda completa no cabe ni empezando con el cupo
+        # intacto.  Sin reintento caben las doce.
+        #
+        # Lo que se pierde es poco: un caso que se cae queda sin medir, y
+        # como las respuestas buenas se guardan en cache, repetir la tanda
+        # manana solo paga por los que faltan.
+        max_retries=0,
     )
 
     senales = preparar(casos)
     faltantes = contar_coste(casos, senales, modelo)
+    peor_caso = coste_maximo(faltantes, modelo)
     disponibles = modelo.budget.remaining(args.modelo)
 
     print("\n" + "=" * ANCHO)
@@ -193,6 +224,10 @@ def main() -> int:
     print(f"  casos                {len(casos)}")
     print(f"  ya en cache          {len(casos) - len(faltantes)} (no gastan nada)")
     print(f"  peticiones necesarias {len(faltantes)}")
+    print(
+        f"  peor caso            {peor_caso} "
+        f"(con {modelo.max_retries} reintentos; un 503 tambien gasta cupo)"
+    )
     print(
         f"  cupo restante hoy    "
         f"{'sin tope' if disponibles is None else disponibles}"

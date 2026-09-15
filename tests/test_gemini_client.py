@@ -446,3 +446,43 @@ def test_el_saldo_viejo_se_suma_al_de_la_clave_actual(tmp_path):
     budget.record("gemini-test")
 
     assert budget.spent("gemini-test") == 4
+
+
+def test_el_dia_del_cupo_se_corta_en_el_pacifico_y_no_en_utc(monkeypatch):
+    """El contador no puede estrenar dia siete horas antes que el proveedor.
+
+    Paso de verdad: a las 00:00:29 UTC el contador local dio por empezado un
+    dia nuevo y concedio 20 peticiones, y Google respondio 429 porque en el
+    Pacifico eran las cinco de la tarde del dia anterior. Cortar el dia antes
+    que el proveedor abre una ventana diaria en la que el contador autoriza a
+    gastar cupo que no existe, que es justo lo que este modulo evita.
+    """
+    class RelojDeMedianocheUTC:
+        @staticmethod
+        def now(tz):
+            instante = datetime.datetime(
+                2026, 9, 15, 0, 0, 29, tzinfo=datetime.timezone.utc
+            )
+            return instante.astimezone(tz)
+
+    monkeypatch.setattr("app.agent.budget.datetime", RelojDeMedianocheUTC)
+
+    assert RequestBudget().today == "2026-09-14"
+
+
+def test_el_dia_del_cupo_si_cambia_en_la_medianoche_del_pacifico(monkeypatch):
+    """La otra mitad del corte: a las 07:00 UTC si empieza el dia nuevo.
+
+    Sin este, el arreglo podria ser 'restar siempre un dia' y nadie lo notaria.
+    """
+    class RelojDeMedianochePacifico:
+        @staticmethod
+        def now(tz):
+            instante = datetime.datetime(
+                2026, 9, 15, 7, 0, 1, tzinfo=datetime.timezone.utc
+            )
+            return instante.astimezone(tz)
+
+    monkeypatch.setattr("app.agent.budget.datetime", RelojDeMedianochePacifico)
+
+    assert RequestBudget().today == "2026-09-15"
