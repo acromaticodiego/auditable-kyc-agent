@@ -36,6 +36,7 @@ from app.config import settings
 from app.domain.signals import SignalSet
 from app.evaluation.baseline import decide as decide_baseline
 from app.evaluation.catalog import TODAY, Case, load_cases
+from app.evaluation.rehearsal import MODELO_DE_ENSAYO, ModeloDeEnsayo
 from app.evaluation.split import CALIBRATION, HOLDOUT
 from app.signals.pipeline import build_signals
 
@@ -281,12 +282,41 @@ def main() -> int:
         help="mide sobre el reservado. Lo quema: solo cuando el prompt este fijo.",
     )
     parser.add_argument("--modelo", default=settings.gemini_model)
+    parser.add_argument(
+        "--simulacro",
+        action="store_true",
+        help=(
+            "ensaya la tanda entera sin llamar a la API. No mide nada: "
+            "comprueba que el arnes funciona antes de gastar el cupo."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.simulacro and args.final:
+        # Un ensayo no es una medicion final, y --final es precisamente la
+        # declaracion de que lo que sale se publica. Juntarlos deja el
+        # reservado marcado como usado a cambio de un numero que no mide
+        # nada, que es el peor intercambio posible.
+        parser.error(
+            "--simulacro y --final se contradicen: un ensayo no puede ser la "
+            "medicion final. Ensaya sobre calibracion y deja el reservado."
+        )
 
     split = HOLDOUT if args.final else CALIBRATION
     casos = sorted(load_cases(split, final_measurement=args.final), key=lambda c: c.id)
+    nombre_del_modelo = MODELO_DE_ENSAYO if args.simulacro else args.modelo
 
-    modelo = GeminiClient(
+    senales_adelantadas: dict[str, SignalSet] | None = None
+    if args.simulacro:
+        # Las senales se calculan antes de construir el doble porque el doble
+        # se indexa por el prompt, y el prompt sale de las senales.
+        casos_ordenados = casos
+        senales_adelantadas = preparar(casos_ordenados)
+
+    modelo = (
+        ModeloDeEnsayo(senales_adelantadas)
+        if senales_adelantadas is not None
+        else GeminiClient(
         api_key=settings.gemini_api_key,
         model=args.modelo,
         cache=ResponseCache(),
@@ -303,16 +333,17 @@ def main() -> int:
         # como las respuestas buenas se guardan en cache, repetir la tanda
         # manana solo paga por las que falten.
         max_retries=0,
+        )
     )
 
-    senales = preparar(casos)
+    senales = senales_adelantadas if senales_adelantadas is not None else preparar(casos)
     faltantes = contar_coste(casos, senales, modelo)
     peor_caso = coste_maximo(faltantes, modelo)
-    disponibles = modelo.budget.remaining(args.modelo)
+    disponibles = modelo.budget.remaining(nombre_del_modelo)
 
     print()
     print("=" * ANCHO)
-    print(f"PLAN ({split}, modelo {args.modelo})")
+    print(f"PLAN ({split}, modelo {nombre_del_modelo})")
     print("=" * ANCHO)
     print(f"  casos                 {len(casos)}")
     print(f"  ya en cache           {len(casos) - len(faltantes)} (no gastan nada)")
@@ -325,6 +356,16 @@ def main() -> int:
         "  cupo restante hoy     "
         + ("sin tope" if disponibles is None else str(disponibles))
     )
+
+    ajenas = modelo.budget.spent_by_other_keys(nombre_del_modelo)
+    if ajenas:
+        print()
+        plural = "peticion" if ajenas == 1 else "peticiones"
+        print(f"  AVISO: hoy se han gastado {ajenas} {plural} de este modelo con")
+        print("  OTRA clave. El cupo gratuito va por proyecto de Google y no por")
+        print("  clave, asi que si las dos pertenecen al mismo proyecto ese saldo")
+        print("  NO se recupera rotando la credencial: el contador local dira que")
+        print("  quedan 20 y Google respondera 429 a la primera peticion.")
 
     if disponibles is not None and peor_caso > disponibles:
         print()
@@ -345,7 +386,7 @@ def main() -> int:
         return 1
 
     datos = evaluar(casos, senales, modelo)
-    informar(datos, split, args.modelo)
+    informar(datos, split, nombre_del_modelo)
 
     print()
     print(f"  Muestra: {datos['total']} casos sinteticos de una sola identidad, con la")
