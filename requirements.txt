@@ -14,5 +14,16 @@ pytesseract>=0.3.10,<1.0
 # llamarse, asi que la API entera deja de arrancar.
 python-multipart>=0.0.9,<1.0
 
+# Reconocimiento facial: deteccion (SCRFD) y embeddings (ArcFace), las dos
+# dentro del paquete buffalo_l de InsightFace y corriendo sobre onnxruntime.
+#
+# Se usa SCRFD y no el detector YOLO propio del otro proyecto porque ese
+# arrastra ultralytics + torch + torchvision, unos 2 GB de imagen, para una
+# pieza que aqui no es la protagonista. El detector vive detras de una
+# interfaz por si algun dia compensa cambiarlo.
+insightface>=0.7,<2.0
+onnxruntime>=1.18,<2.0
+opencv-python-headless>=4.9,<6.0
+
 # Pruebas
 pytest>=8.3,<9.0

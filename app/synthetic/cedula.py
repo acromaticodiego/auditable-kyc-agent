@@ -192,6 +192,35 @@ def _placeholder_portrait(size: tuple[int, int]) -> Image.Image:
     return portrait
 
 
+def _fit_portrait(photo: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Recorta al centro y escala, sin deformar la cara.
+
+    Un `resize` directo al hueco del retrato estira o aplasta la foto segun
+    su proporcion original, y una cara deformada produce un embedding
+    distinto del de la misma cara sin deformar.  Eso haria que la similitud
+    bajara por un defecto del generador y no por nada del documento, que es
+    la peor clase de error: uno que se mide y se atribuye a otra cosa.
+    """
+    ancho, alto = size
+    proporcion_destino = ancho / alto
+    proporcion_origen = photo.width / photo.height
+
+    if proporcion_origen > proporcion_destino:
+        # La foto es mas ancha de lo que cabe: se recorta a los lados.
+        nuevo_ancho = int(photo.height * proporcion_destino)
+        izquierda = (photo.width - nuevo_ancho) // 2
+        recorte = photo.crop((izquierda, 0, izquierda + nuevo_ancho, photo.height))
+    else:
+        # Mas alta: se recorta arriba y abajo. Se deja mas margen abajo que
+        # arriba porque en un retrato la cara vive en el tercio superior, y
+        # recortar por el centro geometrico le corta la frente.
+        nuevo_alto = int(photo.width / proporcion_destino)
+        arriba = (photo.height - nuevo_alto) // 3
+        recorte = photo.crop((0, arriba, photo.width, arriba + nuevo_alto))
+
+    return recorte.resize(size, Image.LANCZOS)
+
+
 def render_front(data: CedulaData, portrait: Image.Image | None = None) -> Image.Image:
     card = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
     draw = ImageDraw.Draw(card)
@@ -215,8 +244,13 @@ def render_front(data: CedulaData, portrait: Image.Image | None = None) -> Image
     )
 
     photo_box = (36, 126, 292, 500)
-    photo = portrait or _placeholder_portrait((photo_box[2] - photo_box[0], photo_box[3] - photo_box[1]))
-    card.paste(photo.resize((photo_box[2] - photo_box[0], photo_box[3] - photo_box[1])), photo_box[:2])
+    hueco = (photo_box[2] - photo_box[0], photo_box[3] - photo_box[1])
+    photo = (
+        _fit_portrait(portrait.convert("RGB"), hueco)
+        if portrait is not None
+        else _placeholder_portrait(hueco)
+    )
+    card.paste(photo, photo_box[:2])
 
     left = 330
     _field(draw, left, 126, "Apellidos", data.surnames, label, value)

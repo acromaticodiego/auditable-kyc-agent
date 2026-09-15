@@ -15,3 +15,8 @@ data/real/
 
 # Cache de respuestas del LLM: es local y volatil, no es fuente de verdad.
 .llm_cache/
+
+# Pesos de modelos: el README de modelos/ explica por que no se versionan.
+# El propio README si entra, porque es lo que dice que hay que poner ahi.
+modelos/*
+!modelos/README.md

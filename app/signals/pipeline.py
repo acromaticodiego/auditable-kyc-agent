@@ -14,6 +14,7 @@ es mucho o poco.
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
@@ -24,6 +25,12 @@ from app.signals.ocr_front import FrontFields, read_front
 from app.signals.ocr_mrz import MrzReading, read_mrz
 from app.signals.quality import glare_contrast, sharpness
 from app.domain.signals import Signal, SignalKind, SignalSet
+
+if TYPE_CHECKING:  # pragma: no cover - solo para anotar tipos
+    # No se importa en tiempo de ejecucion: cargar el lector facial trae
+    # 200 MB de modelos, y el pipeline se importa tambien donde no hay
+    # ninguna cara que mirar.
+    from app.signals.face import FaceReader
 
 # Campos del anverso que se publican como senal con su confianza.
 PUBLISHED_FIELDS = {
@@ -324,8 +331,73 @@ def _document_signals(
     return signals
 
 
+def _facial_signal(
+    front: Image.Image, selfie: Image.Image | None, reader: "FaceReader | None"
+) -> Signal:
+    """Compara la cara del documento con la de la selfie.
+
+    Devuelve la similitud **cruda, sin umbral**.  Decir a partir de que
+    valor dos caras son la misma persona es una decision, y este modulo
+    mide; el agente decide y la linea base tiene su corte escrito aparte.
+    Meter el umbral aqui escondiria la decision dentro de la medicion.
+
+    Cuando falta algo, la senal sale no disponible con el motivo concreto, y
+    el motivo importa: que no haya selfie es un problema de la solicitud,
+    que no se detecte cara en el documento apunta a una foto mala del
+    anverso, y que no se detecte en la selfie se arregla pidiendo otra. Las
+    tres llevan al agente a sitios distintos.
+    """
+    descripcion = (
+        "Parecido entre la cara impresa en el documento y la de la selfie, "
+        "de -1 a 1. Medido con ArcFace sobre embeddings normalizados. Sobre "
+        "989 pares de personas distintas ninguno paso de 0.25; el unico par "
+        "de la misma persona disponible dio 0.79. Ver docs/adr/0005."
+    )
+
+    if selfie is None:
+        return Signal(
+            "facial.similarity", SignalKind.SCORE, descripcion,
+            unavailable_reason="no se aporto ninguna selfie con la solicitud",
+        )
+
+    if reader is None:
+        from app.signals.face import FaceReader as _FaceReader
+
+        reader = _FaceReader()
+
+    cara_documento = reader.read(front, allow_ghost=True)
+    if not cara_documento.available:
+        return Signal(
+            "facial.similarity", SignalKind.SCORE, descripcion,
+            unavailable_reason=(
+                f"en el anverso del documento, {cara_documento.reason}"
+            ),
+        )
+
+    cara_selfie = reader.read(selfie)
+    if not cara_selfie.available:
+        return Signal(
+            "facial.similarity", SignalKind.SCORE, descripcion,
+            unavailable_reason=f"en la selfie, {cara_selfie.reason}",
+        )
+
+    from app.signals.face import similarity
+
+    valor = similarity(cara_documento, cara_selfie)
+    return Signal(
+        "facial.similarity",
+        SignalKind.SCORE,
+        descripcion,
+        value=round(valor, 4),
+    )
+
+
 def build_signals(
-    front: Image.Image, back: Image.Image, today: date | None = None
+    front: Image.Image,
+    back: Image.Image,
+    today: date | None = None,
+    selfie: Image.Image | None = None,
+    face_reader: "FaceReader | None" = None,
 ) -> SignalSet:
     today = today or date.today()
 
@@ -343,6 +415,8 @@ def build_signals(
     signals += _document_signals(front_fields, mrz, today)
 
     expired = is_expired(front_fields, mrz, today)
+    signals.append(_facial_signal(front, selfie, face_reader))
+
     signals.append(
         Signal(
             "document.expired",

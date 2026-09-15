@@ -8,7 +8,7 @@ con fundamentos que citan la señal concreta que los sostiene.
 > **Estado: en construcción.** Funcionan el contrato de decisión, la
 > verificación de citas, el cliente del modelo con caché y presupuesto, la
 > lectura de la MRZ, el generador de cédulas sintéticas y un catálogo de
-> 25 casos etiquetados, el extractor completo (OCR del anverso, MRZ del
+> 27 casos etiquetados, el extractor completo (OCR del anverso, MRZ del
 > reverso y cotejo entre ambos) y una línea base de reglas fijas ya medida.
 > Falta el agente, el reconocimiento facial y el endpoint de verificación.
 
@@ -39,6 +39,13 @@ del anfitrión (5432 y 5433 ya los ocupa otro proyecto de esta maquina).
 ```powershell
 Invoke-RestMethod http://localhost:8000/health
 docker compose exec api pytest -q
+```
+
+Ensayar la tanda de evaluación entera **sin gastar una sola petición**, para
+comprobar que el arnés funciona antes de quemar el cupo del día:
+
+```powershell
+docker compose exec api python scripts/evaluate_agent.py --simulacro
 ```
 
 Una verificación completa, con las dos caras del documento:
@@ -186,10 +193,10 @@ geometría, sin mirar si valida.
 Un árbol de decisión sin modelo de lenguaje, con los umbrales elegidos
 mirando **solo la mitad de calibración**:
 
-| | aciertos | explicaciones fieles |
-|---|---|---|
-| calibración (12 casos) | 9/12 | 12/12 |
-| **reservado (13 casos)** | **10/13** | 13/13 |
+| | aciertos | fieles | completas |
+|---|---|---|---|
+| calibración (13 casos) | 10/13 | 13/13 | 11/13 |
+| **reservado (14 casos)** | **11/14** | 14/14 | — |
 
 Con la primera versión del conjunto —18 casos— la línea base sacaba 8/9 en
 el reservado. **Ese resultado no era una buena noticia**: significaba que
@@ -221,7 +228,52 @@ La línea base cita señales y pasa por el mismo verificador que el agente.
 Si pudiera explicarse sin citar nada verificable, la comparación sería
 injusta a su favor.
 
+### La señal facial — 44 personas reales, 1.935 pares
+
+Medido con SCRFD + ArcFace (`buffalo_l`) sobre fotos reales que **no se
+publican**; ver [docs/caras-para-la-senal-facial.md](docs/caras-para-la-senal-facial.md).
+
+| | misma persona | personas distintas (máximo) |
+|---|---|---|
+| foto contra foto | 0,794 *(n=1)* | 0,246 *(n=989)* |
+| **pintada en la cédula** contra selfie | **0,807** *(n=1)* | **0,263** *(n=1.935)* |
+| cédula degradada (desenfoque 1,0 + JPEG 45) | 0,762 *(n=1)* | 0,256 *(n=1.935)* |
+
+Se mide dos veces a propósito. La pregunta no es si ArcFace funciona —eso
+ya lo midieron sus autores— sino si **sobrevive a pasar por este sistema**:
+la foto se encoge al hueco del retrato, se imprime, alguien la fotografía
+con un móvil y llega comprimida. Esa cadena puede destruir un embedding y
+no habría forma de saberlo midiendo las fotos crudas.
+
+**No lo destruye.** El coste real del documento es 0,045 en el lado genuino
+(0,807 → 0,762 con degradación) y el hueco entre genuino e impostor se
+mantiene por encima de **+0,50**. Ningún par de desconocidos, de los 1.935,
+llega a la mitad del valor genuino.
+
+Un detalle en la dirección incómoda: el documento **sube** el máximo
+impostor de 0,246 a 0,263. Es poco y con este hueco no importa, pero el
+renderizado hace que dos desconocidos se parezcan algo más, no menos.
+
+**Lo que estos números no dicen.** El lado genuino tiene **n=1**: una sola
+persona aportó dos fotos suyas. Sirve para ver que hay separación y **no**
+para estimar a cuántos clientes legítimos rechazaría un umbral — ese número
+este proyecto no lo tiene. El lado impostor sí está medido, con 44 personas
+reales. Y todas son fotos de conocidos hechas con móviles: no representan
+la variedad de edad, tono de piel ni condiciones de captura de un sistema
+en producción.
+
+La señal se entrega al agente **cruda, sin umbral**. Decir a partir de qué
+valor dos caras son la misma persona es una decisión, y el pipeline mide;
+meter el corte dentro de la medición escondería la decisión.
+
 ### El agente frente a la línea base — 12 casos de calibración
+
+> **Medida sobre el catálogo de 25 casos**, cuando la mitad de calibración
+> tenía 12. El catálogo creció después a 27 y esa mitad es hoy de 13, así
+> que estas cifras no son comparables con las de la tabla de la línea base
+> de más arriba. Se dejan como estaban en vez de recalcularlas: una medida
+> es de la fecha en que se tomó, y reescribirla para que cuadre con el
+> conjunto de hoy sería inventar una medición que nadie hizo.
 
 Primera medición completa del agente sobre el conjunto de **calibración**,
 con `gemini-3.1-flash-lite`, los 12 casos contestados. **No es el número
@@ -265,9 +317,24 @@ nada. La misma cuenta despejó la duda contraria: ningún caso tiene más de
 una adversa —seis tienen una y seis ninguna—, así que exigir que se citen
 todas no es pedante y deja **seis casos donde de verdad se puede fallar**.
 
-**Todavía no hay cifra de completitud**: la medición de arriba es anterior
-a esta métrica, y volver a medirla cuesta otra tanda de 12 peticiones. Sale
-en la próxima. Ver [ADR-0002](docs/adr/0002-explicacion-auditable.md).
+**Del agente todavía no hay cifra de completitud**: la medición de arriba es
+anterior a esta métrica y volver a medirla cuesta otra tanda de 13
+peticiones. De la línea base sí la hay, porque no gasta nada:
+
+> **Línea base: 11/13 en completitud**, sobre 7 casos que tenían alguna
+> señal adversa que citar.
+
+Los dos que se calla son informativos. En `captura-dedo-sobre-la-fecha`
+pide otra foto y no menciona que la fecha de nacimiento no cuadra entre el
+anverso y la MRZ. Y en `incoherencia-expedicion-posterior-a-expiracion`
+**aprueba** mientras `document.dates_coherent` es falso, sin mencionarlo:
+aprobar callándose una señal adversa es exactamente el fallo que esta
+métrica existe para detectar, y lo detectó sobre un caso real del conjunto
+en vez de sobre un ejemplo de laboratorio.
+
+Eso deja la vara puesta: el agente tiene que superar **11/13** para que la
+segunda métrica diga algo a su favor. Ver
+[ADR-0002](docs/adr/0002-explicacion-auditable.md).
 
 Los 4 fallos no están repartidos al azar. **Tres de los cuatro son el mismo
 comportamiento: escalar en vez de comprometerse** — dos `reject` y un
@@ -315,8 +382,25 @@ casos.
 
 ## El conjunto de evaluación
 
-25 casos con la decisión correcta anotada y **el motivo escrito para poder
-discutirse**: 4 legítimos, 6 manipulados, 2 caducados, 6 de captura mala y 7 elegidos por lo que las reglas fijas no saben resolver.
+27 casos con la decisión correcta anotada y **el motivo escrito para poder
+discutirse**: 4 legítimos, 6 manipulados, 2 caducados, 6 de captura mala, 7
+elegidos por lo que las reglas fijas no saben resolver y 2 escritos para
+que el agente pueda equivocarse escalando de más.
+
+Esos dos últimos se añadieron **después** de reescribir el menú de
+decisiones del prompt, y hay que declararlo porque afecta a cómo se lee
+cualquier medida que los incluya. El motivo de añadirlos es, sin embargo,
+lo contrario de arrimar el ascua: al agente se le dijo que escale cuando
+una señal describa algo que no le toca resolver, y el riesgo evidente de
+esa frase es que ahora escale a cualquiera que sea joven o cuyo documento
+venza pronto. Con un solo caso de elegibilidad en el catálogo no había
+forma de distinguir si el agente aprendió el principio o si le dimos la
+respuesta a ese caso concreto. **Existen para que el arreglo pueda salir
+mal de forma visible.**
+
+Son gratis para la línea base, que no mira ni la edad ni la proximidad del
+vencimiento y por tanto los aprueba sin razonar nada. La trampa es solo
+para un agente demasiado prudente.
 Cada uno declara tres cosas distintas que es tentador mezclar: qué debería
 decidir el sistema *con la información que tiene*, si el documento es falso
 de verdad, y si esa falsedad deja algún rastro visible.
@@ -347,7 +431,7 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
   para encontrar uno que respondiera.
 - El contador de presupuesto empezó a existir después de haberse gastado
   el cupo del primer día, así que esa cuenta se sembró a mano.
-- Los 25 casos son variantes de **una sola identidad sintética**, sin una
+- Los 27 casos son variantes de **una sola identidad sintética**, sin una
   foto real de por medio. Ninguna medida hecha sobre ellos dice nada sobre
   documentos reales.
 - El conjunto vivió 18 casos **sin un solo caso de escalado a revisión
