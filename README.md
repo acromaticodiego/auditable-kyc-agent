@@ -242,6 +242,13 @@ Lo que el agente sí hace impecable es lo que este proyecto dice que
 importa: 38 citas, ninguna inventada, ningún valor mal atribuido. La
 explicación se sostiene aunque la decisión no siempre acierte.
 
+Con una salvedad que hay que leer pegada a ese `38/38`: **la fidelidad mide
+que no mienta, no que lo cuente todo.** El auditor recorre las citas que el
+agente hizo; no puede ver las que calló. Un agente que aprueba citando con
+toda exactitud que la MRZ es legible, y omitiendo que el apellido no
+coincide, saca fidelidad perfecta. Falta medir la **completitud**, que es
+calculable y no está hecha. Ver [ADR-0002](docs/adr/0002-explicacion-auditable.md).
+
 Los 4 fallos no están repartidos al azar. **Tres de los cuatro son el mismo
 comportamiento: escalar en vez de comprometerse** — dos `reject` y un
 `request_resubmission` convertidos en `escalate_to_human`. En los dos
