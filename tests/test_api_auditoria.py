@@ -184,16 +184,27 @@ def test_el_resumen_separa_el_escalado_decidido_del_escalado_por_fallo(
     cliente = api(json.dumps(escalada), tmp_path)
     creadas.append(uuid.UUID(subir(cliente, con_apellido_retocado())["id"]))
 
+    # DOS decididas y UNA sin decidir, a proposito.
+    #
+    # Con una de cada, este test no valia para nada: contar las que SI
+    # decidieron da el mismo numero que contar las que no, asi que invertir
+    # la condicion de la consulta no cambiaba el resultado y la prueba
+    # pasaba igual. Lo destapo mutar el codigo. Con dos y una, los dos
+    # numeros se separan y la comprobacion empieza a comprobar algo.
+    aprueba = api(json.dumps(APROBACION), tmp_path / "aprueba")
+    creadas.append(uuid.UUID(subir(aprueba, limpio())["id"]))
+
     caido = api("sobrecargado", tmp_path / "otro", status=503)
     creadas.append(uuid.UUID(subir(caido, limpio())["id"]))
 
     despues = caido.get("/auditoria/resumen").json()
 
-    assert crecio(despues, antes, "verificaciones") == 2
+    assert crecio(despues, antes, "verificaciones") == 3
     assert crecio_en(despues, antes, "por_decision", "escalate_to_human") == 2
-    # Las dos escalaron, pero solo una fue un juicio del agente.
+    assert crecio_en(despues, antes, "por_decision", "approve") == 1
+    # Dos escalaron, pero solo una de ellas fue un juicio del agente.
     assert crecio(despues, antes, "escalados_sin_juicio_del_agente") == 1
-    assert crecio(despues, antes, "con_explicacion") == 1
+    assert crecio(despues, antes, "con_explicacion") == 2
 
 
 def test_la_fidelidad_solo_se_cuenta_sobre_las_que_tuvieron_explicacion(
@@ -231,16 +242,38 @@ def test_el_resumen_dice_que_senales_se_calla_el_agente(tmp_path, creadas, antes
     for _ in range(2):
         creadas.append(uuid.UUID(subir(cliente, con_apellido_retocado())["id"]))
 
-    despues = cliente.get("/auditoria/resumen").json()
+    # Y una tercera con la MISMA senal adversa pero CITADA.
+    #
+    # Sin ella el test no comprobaba nada: en las dos de arriba la senal es
+    # adversa y ademas callada, asi que contar las adversas daba el mismo
+    # numero que contar las calladas y la consulta podia mirar la columna
+    # equivocada sin que nadie lo notara. Lo destapo mutar el codigo.
+    reconoce = {
+        "decision": "escalate_to_human",
+        "summary": "La discrepancia del apellido necesita que la mire alguien.",
+        "groundings": [
+            {
+                "signal_id": "cross.surnames",
+                "cited_value": "mismatch",
+                "weight": "against",
+                "text": "El apellido del anverso no coincide con el de la MRZ.",
+            }
+        ],
+    }
+    honesto = api(json.dumps(reconoce), tmp_path / "honesto")
+    creadas.append(uuid.UUID(subir(honesto, con_apellido_retocado())["id"]))
+
+    despues = honesto.get("/auditoria/resumen").json()
 
     antes_calladas = calladas(antes)
+    # Tres verificaciones con la senal adversa, pero solo dos se la callaron.
     assert calladas(despues)["cross.surnames"] - antes_calladas.get(
         "cross.surnames", 0
     ) == 2
-    assert crecio(despues, antes, "explicaciones_fieles") == 2
-    # Las dos son fieles y ninguna completa: citan la verdad y se callan la
-    # discrepancia.
-    assert crecio(despues, antes, "explicaciones_completas") == 0
+    assert crecio(despues, antes, "explicaciones_fieles") == 3
+    # Solo la tercera es completa: las otras dos citan la verdad y se callan
+    # la discrepancia.
+    assert crecio(despues, antes, "explicaciones_completas") == 1
 
 
 def test_las_cuentas_del_resumen_son_coherentes_entre_si(tmp_path):
