@@ -111,11 +111,18 @@ def _abrir(fichero: UploadFile, contenido: bytes, campo: str) -> Image.Image:
             ),
         )
 
+    # Aqui habia un `except Image.DecompressionBombError`.  Se quito porque
+    # era inalcanzable: PIL solo lanza ese error por encima del doble de su
+    # propio limite (179 millones de pixeles) y el tope de arriba rechaza a
+    # partir de 40, asi que nunca se llegaba a ejecutar.  Lo destapo mutar
+    # el codigo: al borrar la rama, los trece tests seguian pasando.
+    #
+    # La relacion entre los dos numeros es lo que lo hace seguro, y por eso
+    # hay un test que la fija: si alguien sube MAX_PIXELES por encima del
+    # limite de PIL, ese test avisa de que hace falta volver a capturarlo
+    # (DecompressionBombError no hereda de OSError y subiria como un 500).
     try:
         imagen.load()
-    except Image.DecompressionBombError as error:
-        # No hereda de OSError, asi que sin esta rama subiria como un 500.
-        raise rechazar("es una imagen desproporcionada", error) from error
     except OSError as error:
         raise rechazar("esta truncado o corrupto", error) from error
 

@@ -394,3 +394,20 @@ def test_una_imagen_truncada_se_rechaza_con_422_y_no_con_500(tmp_path):
 
     assert respuesta.status_code == 422
     assert "anverso" in respuesta.json()["detail"]
+
+
+def test_el_tope_de_pixeles_se_mantiene_por_debajo_del_de_pil():
+    """Fija la relacion que hace innecesario capturar DecompressionBombError.
+
+    PIL solo lanza ese error por encima del DOBLE de su propio limite. Como
+    el tope de este endpoint es muy inferior, la imagen se rechaza antes y
+    esa excepcion no llega a ocurrir nunca. Hubo un `except` para ella y era
+    codigo muerto: al borrarlo, los trece tests seguian pasando.
+
+    Si alguien sube MAX_PIXELES por encima de ese umbral, este test falla y
+    le recuerda que tiene que volver a capturarla, porque
+    DecompressionBombError NO hereda de OSError y subiria como un 500.
+    """
+    from app.api.verifications import MAX_PIXELES
+
+    assert MAX_PIXELES < 2 * Image.MAX_IMAGE_PIXELS
