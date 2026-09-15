@@ -95,6 +95,14 @@ def evaluar(
     finales: Counter[str] = Counter()
     desacuerdos: list[tuple[str, str, str, str, str]] = []
     base_aciertos = 0
+    # La linea base sobre los MISMOS casos que el agente llego a contestar.
+    #
+    # Sin esto la comparacion es tramposa sin querer: el primer informe puso
+    # 6/8 del agente al lado de 9/12 de la linea base, que son denominadores
+    # distintos sobre casos distintos, y de ahi no se puede concluir nada.
+    # Da la casualidad de que sobre los mismos ocho la linea base tambien
+    # sacaba 6, o sea que el titular que sugeria el informe estaba al reves.
+    base_en_contestados = 0
     interrumpida = False
 
     print()
@@ -129,6 +137,7 @@ def evaluar(
             continue
 
         contestados += 1
+        base_en_contestados += base_ok
         agente_ok = run.effective_decision is caso.expected_decision
         aciertos += agente_ok
         fieles += run.faithful
@@ -163,6 +172,7 @@ def evaluar(
         "fieles": fieles,
         "citas": (citas_validas, citas_totales),
         "base_aciertos": base_aciertos,
+        "base_en_contestados": base_en_contestados,
         "finales": finales,
         "desacuerdos": desacuerdos,
         "interrumpida": interrumpida,
@@ -195,15 +205,25 @@ def informar(datos: dict, split: str, modelo: str) -> None:
             print("  El proveedor no respondio en: " + ", ".join(datos["perdidos"]))
         return
 
-    print(f"  agente               {datos['aciertos']}/{contestados} aciertos")
-    print(
-        f"  linea base           {datos['base_aciertos']}/{total} aciertos "
-        "(conjunto entero: no gasta cupo)"
-    )
-    print(f"  explicaciones fieles {datos['fieles']}/{contestados}")
+    # Los dos primeros numeros van juntos y sobre los mismos casos porque es
+    # la unica comparacion que significa algo. Poner el acierto del agente
+    # sobre los casos que contesto al lado del de la linea base sobre el
+    # conjunto entero compara denominadores distintos sobre casos distintos.
+    print(f"  Sobre los {contestados} casos que el agente contesto:")
+    print(f"    agente             {datos['aciertos']}/{contestados} aciertos")
+    print(f"    linea base         {datos['base_en_contestados']}/{contestados} aciertos")
+    print(f"    explicaciones fieles del agente {datos['fieles']}/{contestados}")
     validas, totales = datos["citas"]
     if totales:
-        print(f"  citas verificadas    {validas}/{totales} correctas")
+        print(f"    citas verificadas  {validas}/{totales} correctas")
+
+    print()
+    print(
+        f"  De referencia, la linea base sobre el conjunto entero: "
+        f"{datos['base_aciertos']}/{total}."
+    )
+    print("  No gasta peticiones, asi que siempre se puede medir completa. No es")
+    print("  comparable con el numero del agente de arriba si faltan casos.")
 
     if datos["perdidos"]:
         print()
