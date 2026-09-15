@@ -210,3 +210,23 @@ def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
             detail=f"no hay ninguna verificacion con id {verificacion_id}",
         )
     return registro
+
+
+@router.get(
+    "/auditoria/resumen",
+    summary="Cuentas de todas las verificaciones registradas",
+    tags=["auditoria"],
+)
+def resumen_de_auditoria() -> dict:
+    """Responde la pregunta que docs/adr/0004 deja planteada.
+
+    Cuantas solicitudes acaban en revision humana, y cuantas de esas por un
+    fallo del modelo en vez de por el documento. Un agente que incumple el
+    contrato en uno de cada tres casos manda un tercio de las solicitudes a
+    un analista, y eso lo descalifica por mucho que acierte en el resto.
+
+    Va bajo /auditoria y no bajo /verificaciones/resumen para no competir
+    con /verificaciones/{id}: 'resumen' no es un UUID, asi que esa ruta
+    respondia un 422 confuso en vez de este recuento.
+    """
+    return almacen.resumen(engine)
