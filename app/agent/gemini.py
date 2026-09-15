@@ -86,8 +86,8 @@ class GeminiClient:
         self._http = http_client or httpx.Client(timeout=timeout)
         self._sleep = sleep
 
-    def generate_json(self, prompt: str, response_schema: dict) -> ModelResponse:
-        request = {
+    def _request(self, prompt: str, response_schema: dict) -> dict:
+        return {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
                 "response_mime_type": "application/json",
@@ -100,6 +100,20 @@ class GeminiClient:
                 "temperature": 0.0,
             },
         }
+
+    def is_cached(self, prompt: str, response_schema: dict) -> bool:
+        """Si esta peticion se responderia desde disco, sin gastar cupo.
+
+        Existe para poder contar el coste de una tanda ANTES de empezarla.
+        Sin esto, una evaluacion de 12 casos con 3 peticiones de cupo se
+        descubre a medias: se gastan las tres, se aborta, y los nueve
+        restantes quedan sin medir hasta el dia siguiente.
+        """
+        key = ResponseCache.key(self.model, self._request(prompt, response_schema))
+        return self.cache.get(key) is not None
+
+    def generate_json(self, prompt: str, response_schema: dict) -> ModelResponse:
+        request = self._request(prompt, response_schema)
 
         key = ResponseCache.key(self.model, request)
         cached = self.cache.get(key)

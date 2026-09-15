@@ -6,6 +6,9 @@ que NO se prueba aqui es si el modelo de verdad respeta el esquema; eso
 solo lo contesta una llamada real (scripts/probe_gemini.py).
 """
 
+import datetime
+import json
+
 import httpx
 import pytest
 
@@ -355,8 +358,6 @@ def test_el_conteo_sobrevive_al_proceso(tmp_path):
 
 
 def test_el_conteo_de_ayer_no_gasta_el_cupo_de_hoy(tmp_path):
-    import datetime
-
     path = tmp_path / "budget.json"
     ayer = RequestBudget(path, today=datetime.date(2026, 9, 13))
     ayer.record("gemini-test")
@@ -404,3 +405,84 @@ def test_la_huella_de_la_clave_no_contiene_la_clave(tmp_path):
     assert clave not in contenido
     assert "clave-secreta" not in contenido
     assert huella in contenido
+
+
+def test_cuenta_las_peticiones_anotadas_con_el_formato_viejo(tmp_path):
+    """El fichero de conteo sobrevive al cambio de formato de la clave.
+
+    Paso de verdad y el mismo dia: al empezar a repartir el conteo por
+    clave, las 20 peticiones que ya se habian gastado quedaron anotadas
+    bajo el nombre del modelo a secas, y el contador nuevo las leyo como
+    cero.  Decia que quedaban 20 cuando no quedaba ninguna, que es
+    exactamente la ceguera que este contador existe para evitar.
+    """
+    path = tmp_path / "budget.json"
+    path.write_text(
+        json.dumps({"2026-09-14": {"gemini-test": 20}}), encoding="utf-8"
+    )
+    budget = RequestBudget(
+        path, today=datetime.date(2026, 9, 14), account="aaaaaaaaaaaa"
+    )
+
+    assert budget.spent("gemini-test") == 20
+    assert budget.remaining("gemini-test") == 0
+    with pytest.raises(BudgetExhausted):
+        budget.ensure_available("gemini-test")
+
+
+def test_el_saldo_viejo_se_suma_al_de_la_clave_actual(tmp_path):
+    """Las anotaciones de los dos formatos cuentan juntas, no una u otra.
+
+    Si el formato viejo solo se leyera cuando el nuevo esta a cero, la
+    primera peticion del dia borraria de la vista todo el saldo anterior.
+    """
+    path = tmp_path / "budget.json"
+    path.write_text(
+        json.dumps({"2026-09-14": {"gemini-test": 3}}), encoding="utf-8"
+    )
+    budget = RequestBudget(
+        path, today=datetime.date(2026, 9, 14), account="aaaaaaaaaaaa"
+    )
+    budget.record("gemini-test")
+
+    assert budget.spent("gemini-test") == 4
+
+
+def test_el_dia_del_cupo_se_corta_en_el_pacifico_y_no_en_utc(monkeypatch):
+    """El contador no puede estrenar dia siete horas antes que el proveedor.
+
+    Paso de verdad: a las 00:00:29 UTC el contador local dio por empezado un
+    dia nuevo y concedio 20 peticiones, y Google respondio 429 porque en el
+    Pacifico eran las cinco de la tarde del dia anterior. Cortar el dia antes
+    que el proveedor abre una ventana diaria en la que el contador autoriza a
+    gastar cupo que no existe, que es justo lo que este modulo evita.
+    """
+    class RelojDeMedianocheUTC:
+        @staticmethod
+        def now(tz):
+            instante = datetime.datetime(
+                2026, 9, 15, 0, 0, 29, tzinfo=datetime.timezone.utc
+            )
+            return instante.astimezone(tz)
+
+    monkeypatch.setattr("app.agent.budget.datetime", RelojDeMedianocheUTC)
+
+    assert RequestBudget().today == "2026-09-14"
+
+
+def test_el_dia_del_cupo_si_cambia_en_la_medianoche_del_pacifico(monkeypatch):
+    """La otra mitad del corte: a las 07:00 UTC si empieza el dia nuevo.
+
+    Sin este, el arreglo podria ser 'restar siempre un dia' y nadie lo notaria.
+    """
+    class RelojDeMedianochePacifico:
+        @staticmethod
+        def now(tz):
+            instante = datetime.datetime(
+                2026, 9, 15, 7, 0, 1, tzinfo=datetime.timezone.utc
+            )
+            return instante.astimezone(tz)
+
+    monkeypatch.setattr("app.agent.budget.datetime", RelojDeMedianochePacifico)
+
+    assert RequestBudget().today == "2026-09-15"

@@ -20,6 +20,12 @@ Por eso el conteo:
   sentido;
 - se persiste en disco, porque el cupo es diario y el proceso no vive
   tanto;
+- el dia se corta en la **medianoche del Pacifico**, no en la de UTC. Lo
+  descubrio un 429 a las 00:00:29 UTC: el contador local acababa de
+  estrenar dia y conceder 20 peticiones nuevas mientras Google seguia
+  contando las del dia anterior, que en el Pacifico eran las cinco de la
+  tarde. Cortar el dia siete horas antes que el proveedor abre una ventana
+  diaria en la que el contador da permiso para gastar cupo que no existe;
 - cuenta el INTENTO, no el exito, que es justo lo que descubrio el
   incidente.
 """
@@ -28,8 +34,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# Donde Google corta el dia del cupo gratuito.  No es una preferencia
+# regional: es la frontera del proveedor, y el contador local tiene que
+# usar la suya y no la de la maquina que ejecuta esto.
+QUOTA_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 
 def account_fingerprint(api_key: str) -> str:
@@ -70,9 +82,26 @@ class RequestBudget:
     def _slot(self, model: str) -> str:
         return f"{self.account}:{model}"
 
+    def _legacy_slot(self, model: str) -> str:
+        """Como se anotaba antes de repartir el conteo por clave.
+
+        Existe por un fallo real y del mismo dia: al pasar de anotar por
+        modelo a anotar por clave y modelo, las peticiones ya gastadas
+        quedaron bajo la clave vieja y el contador nuevo leyo cero.  Habia
+        20 peticiones gastadas y `remaining` decia 20, que es justo la
+        ceguera que este modulo existe para evitar.
+
+        Las entradas viejas se suman a las de cualquier clave que pregunte.
+        Si dos claves distintas heredan el mismo saldo viejo, el contador
+        sera PESIMISTA y avisara antes de tiempo.  Ese es el sentido
+        correcto del error: pasarse de prudente cuesta una ejecucion
+        pospuesta, quedarse corto cuesta el cupo del dia entero.
+        """
+        return model
+
     @property
     def today(self) -> str:
-        return (self._today or datetime.now(UTC).date()).isoformat()
+        return (self._today or datetime.now(QUOTA_TIMEZONE).date()).isoformat()
 
     def _load(self) -> dict[str, dict[str, int]]:
         if not self.path.exists():
@@ -86,7 +115,8 @@ class RequestBudget:
         return data if isinstance(data, dict) else {}
 
     def spent(self, model: str) -> int:
-        return self._load().get(self.today, {}).get(self._slot(model), 0)
+        day = self._load().get(self.today, {})
+        return day.get(self._slot(model), 0) + day.get(self._legacy_slot(model), 0)
 
     def remaining(self, model: str) -> int | None:
         if self.daily_limit is None:

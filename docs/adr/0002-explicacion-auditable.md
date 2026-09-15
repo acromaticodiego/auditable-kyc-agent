@@ -95,6 +95,28 @@ fundamento en la dirección de la decisión.
   la calidad del juicio; para eso está la comparación contra la línea base
   de reglas fijas. Presentarla como si midiera lo segundo sería exactamente
   el tipo de número engañoso que este proyecto quiere evitar.
+- **La fidelidad mide que no mienta, no que lo cuente todo.** Es el límite
+  más fácil de olvidar al leer un `38/38`, y el más incómodo. El auditor
+  recorre las citas que el agente *hizo* y comprueba una a una que digan la
+  verdad; no tiene forma de ver las que **no** hizo. Un agente que aprueba
+  una solicitud citando con toda exactitud que la MRZ es legible y que el
+  documento no está vencido, **callándose que el apellido del anverso no
+  coincide con el de la MRZ**, saca fidelidad perfecta. Su explicación es
+  verdadera y está incompleta, y el número no distingue esas dos cosas.
+
+  Peor aún: el incentivo apunta en la dirección equivocada. Citar poco es
+  la forma más segura de no equivocarse en una cita. El mínimo de un
+  fundamento en `AgentDecision` cierra el caso extremo de no citar nada,
+  pero no el de citar sólo lo cómodo.
+
+  Lo que faltaría medir es la **completitud**: si existía alguna señal
+  adversa que la explicación no menciona. Es calculable y determinista —
+  un cotejo en `mismatch`, un documento vencido, unos dígitos de control
+  que no cuadran son adversos por construcción del dominio, no por
+  criterio de nadie— y no está hecho. Hasta que lo esté, cualquier cifra
+  de fidelidad de este proyecto debe leerse como «de lo que dijo, nada era
+  falso», nunca como «la explicación está completa».
+
 - Los identificadores de señal pasan a ser una interfaz pública. Renombrar
   `facial.similarity` invalida las citas de todas las decisiones ya
   guardadas.
