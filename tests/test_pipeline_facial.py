@@ -76,16 +76,39 @@ def facial(signals):
     return signals.get("facial.similarity")
 
 
-def test_sin_selfie_el_motivo_lo_dice_y_no_se_mira_ninguna_cara(documento):
+def test_sin_selfie_la_senal_facial_no_existe_ni_como_no_disponible(documento):
+    """No mandar selfie es una eleccion legitima, no un hueco.
+
+    Listarla como no disponible le diria al agente que le falta algo que
+    nadie penso darle, y le empujaria a pedir el reenvio de una foto que el
+    solicitante no tenia que enviar.
+
+    Hay ademas un motivo de medicion, y es el que lo destapo: los casos del
+    catalogo no llevan selfie, asi que anadirles una senal ausente habria
+    cambiado el prompt de todos a la vez que se estaba probando otro cambio
+    en el prompt. Si el resultado se hubiera movido, no habria forma de
+    saber cual de los dos cambios lo movio.
+    """
     lector = LectorSimulado()
 
     senales = build_signals(*documento, today=TODAY, face_reader=lector)
 
-    senal = facial(senales)
-    assert not senal.available
-    assert "no se aporto ninguna selfie" in senal.unavailable_reason
+    assert facial(senales) is None
+    assert "facial.similarity" not in senales
     # Ni siquiera se carga el modelo: no hay nada que comparar.
     assert lector.llamadas == []
+
+
+def test_el_juego_de_senales_sin_selfie_no_cambio_al_anadir_lo_facial(documento):
+    """Fija el tamano del prompt que ven los casos de evaluacion.
+
+    Si alguien vuelve a colar una senal en la rama sin selfie, este test lo
+    para: cualquier senal nueva ahi invalida la comparacion con las
+    mediciones ya publicadas, porque el agente estaria leyendo otro prompt.
+    """
+    senales = build_signals(*documento, today=TODAY)
+
+    assert len(senales) == 28
 
 
 def test_sin_cara_en_el_anverso_el_motivo_senala_al_documento(documento):

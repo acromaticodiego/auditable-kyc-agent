@@ -332,7 +332,7 @@ def _document_signals(
 
 
 def _facial_signal(
-    front: Image.Image, selfie: Image.Image | None, reader: "FaceReader | None"
+    front: Image.Image, selfie: Image.Image, reader: "FaceReader | None"
 ) -> Signal:
     """Compara la cara del documento con la de la selfie.
 
@@ -353,12 +353,6 @@ def _facial_signal(
         "989 pares de personas distintas ninguno paso de 0.25; el unico par "
         "de la misma persona disponible dio 0.79."
     )
-
-    if selfie is None:
-        return Signal(
-            "facial.similarity", SignalKind.SCORE, descripcion,
-            unavailable_reason="no se aporto ninguna selfie con la solicitud",
-        )
 
     if reader is None:
         from app.signals.face import FaceReader as _FaceReader
@@ -415,7 +409,24 @@ def build_signals(
     signals += _document_signals(front_fields, mrz, today)
 
     expired = is_expired(front_fields, mrz, today)
-    signals.append(_facial_signal(front, selfie, face_reader))
+    # SIN SELFIE NO HAY SENAL FACIAL, ni siquiera como "no disponible".
+    #
+    # La selfie es opcional en esta API: no mandarla es una eleccion
+    # legitima, una verificacion solo del documento, no un hueco. Listar la
+    # senal como no disponible le diria al agente que le falta algo que
+    # nadie penso darle, y le empujaria a pedir un reenvio de una foto que
+    # el solicitante no tenia que enviar.
+    #
+    # Hay ademas un motivo de medicion. Los 27 casos del catalogo no llevan
+    # selfie, y anadirles una senal ausente habria cambiado el prompt de
+    # todos ellos a la vez que se estaba probando otro cambio en el prompt:
+    # si el resultado se moviera, no habria forma de saber cual de los dos
+    # lo movio. Se descubrio comparando el prompt antes y despues.
+    #
+    # El dia que la selfie sea obligatoria, su ausencia SI tiene que
+    # aparecer como senal no disponible y no como silencio.
+    if selfie is not None:
+        signals.append(_facial_signal(front, selfie, face_reader))
 
     signals.append(
         Signal(

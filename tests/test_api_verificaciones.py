@@ -610,25 +610,22 @@ def test_el_contrato_publicado_nombra_las_cuatro_decisiones(tmp_path):
     )
 
 
-def test_sin_selfie_la_senal_facial_sale_no_disponible(tmp_path, creadas):
-    """La selfie es opcional y su ausencia no se disimula.
+def test_sin_selfie_no_hay_senal_facial_en_el_expediente(tmp_path, creadas):
+    """Una verificacion solo del documento no tiene nada facial que registrar.
 
-    El sistema puede verificar el documento sin ella, y decirlo asi es mas
-    honesto que exigirla y fingir que sin ella no se puede hacer nada. Lo
-    que no vale es que la senal aparezca con un valor inventado.
+    La selfie es opcional en esta API, asi que no mandarla es una eleccion
+    legitima y no un hueco. Guardar la senal como no disponible haria que
+    el expediente de una verificacion de documento pareciera una
+    verificacion de identidad incompleta, que es otra cosa.
     """
     cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
     creado = subir(cliente).json()
     creadas.append(uuid.UUID(creado["id"]))
 
     registro = cliente.get(f"/verificaciones/{creado['id']}").json()
-    facial = next(
-        s for s in registro["senales"] if s["signal_id"] == "facial.similarity"
-    )
+    identificadores = {s["signal_id"] for s in registro["senales"]}
 
-    assert facial["disponible"] is False
-    assert facial["valor"] is None
-    assert "no se aporto ninguna selfie" in facial["motivo_indisponible"]
+    assert "facial.similarity" not in identificadores
     assert registro["selfie_sha256"] is None
 
 
