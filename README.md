@@ -5,12 +5,20 @@ Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
 con fundamentos que citan la señal concreta que los sostiene.
 
-> **Estado: en construcción.** Funcionan el contrato de decisión, la
-> verificación de citas, el cliente del modelo con caché y presupuesto, la
-> lectura de la MRZ, el generador de cédulas sintéticas y un catálogo de
-> 27 casos etiquetados, el extractor completo (OCR del anverso, MRZ del
-> reverso y cotejo entre ambos) y una línea base de reglas fijas ya medida.
-> Falta el agente, el reconocimiento facial y el endpoint de verificación.
+> **Estado: en construcción.** El sistema funciona de punta a punta —
+> `POST /verificaciones` toma las dos caras del documento y una selfie,
+> mide 28 señales deterministas, el agente decide citando las que le
+> pesaron y cada cita se contrasta contra el valor real antes de quedar
+> registrada. Están medidos el OCR, la MRZ, la señal facial y una línea
+> base de reglas fijas.
+>
+> **Lo que todavía no tiene número es el agente.** La única medición que
+> existe se hizo con una versión anterior del prompt y quedó invalidada al
+> descubrir que el contrato de decisión estaba tumbando respuestas
+> correctas y que el informe contaba como aciertos del agente las
+> coincidencias del fallback. Las dos cosas están corregidas y la medición
+> se repite; hasta entonces, aquí no hay cifra de acierto del agente y no
+> se pone ninguna.
 
 ## La idea
 
