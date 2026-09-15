@@ -81,6 +81,9 @@ lo que se descartó y por qué.
 - [ADR-0004](docs/adr/0004-que-hace-el-sistema-cuando-el-agente-no-contesta.md)
   — por qué un agente que no contesta escala a un humano en vez de aprobar
   o rechazar, y cuánto cuesta esa elección.
+- [ADR-0005](docs/adr/0005-la-similitud-facial-va-sin-umbral.md) — por qué
+  la similitud facial se entrega cruda y el umbral no vive en el pipeline,
+  y por qué el documento y la selfie se leen con criterios distintos.
 
 ## Métricas
 

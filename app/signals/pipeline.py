@@ -351,7 +351,7 @@ def _facial_signal(
         "Parecido entre la cara impresa en el documento y la de la selfie, "
         "de -1 a 1. Medido con ArcFace sobre embeddings normalizados. Sobre "
         "989 pares de personas distintas ninguno paso de 0.25; el unico par "
-        "de la misma persona disponible dio 0.79. Ver docs/adr/0005."
+        "de la misma persona disponible dio 0.79."
     )
 
     if selfie is None:

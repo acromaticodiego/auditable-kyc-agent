@@ -608,3 +608,86 @@ def test_el_contrato_publicado_nombra_las_cuatro_decisiones(tmp_path):
         esquemas["VerificacionCreada"]["properties"]["decision"]["$ref"]
         == "#/components/schemas/DecisionKind"
     )
+
+
+def test_sin_selfie_la_senal_facial_sale_no_disponible(tmp_path, creadas):
+    """La selfie es opcional y su ausencia no se disimula.
+
+    El sistema puede verificar el documento sin ella, y decirlo asi es mas
+    honesto que exigirla y fingir que sin ella no se puede hacer nada. Lo
+    que no vale es que la senal aparezca con un valor inventado.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    creado = subir(cliente).json()
+    creadas.append(uuid.UUID(creado["id"]))
+
+    registro = cliente.get(f"/verificaciones/{creado['id']}").json()
+    facial = next(
+        s for s in registro["senales"] if s["signal_id"] == "facial.similarity"
+    )
+
+    assert facial["disponible"] is False
+    assert facial["valor"] is None
+    assert "no se aporto ninguna selfie" in facial["motivo_indisponible"]
+    assert registro["selfie_sha256"] is None
+
+
+def test_con_selfie_se_guarda_su_hash_y_no_la_imagen(tmp_path, creadas):
+    """La selfie es el dato mas sensible que pasa por aqui.
+
+    Una foto de la cara de alguien no puede quedarse en la tabla de
+    auditoria: el hash basta para demostrar que este expediente corresponde
+    a esa foto, siempre que alguien conserve la foto.
+    """
+    import hashlib
+
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    datos = persona()
+    # Una imagen lisa: no tiene cara, que es justo el caso que hay que
+    # cubrir sin depender de fotos reales.
+    selfie = png(Image.new("RGB", (400, 400), (180, 170, 160)))
+
+    creado = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(render_front(datos)), "image/png"),
+            "reverso": ("reverso.png", png(render_back(datos)), "image/png"),
+            "selfie": ("selfie.png", selfie, "image/png"),
+        },
+    ).json()
+    creadas.append(uuid.UUID(creado["id"]))
+
+    registro = cliente.get(f"/verificaciones/{creado['id']}").json()
+
+    assert registro["selfie_sha256"] == hashlib.sha256(selfie).hexdigest()
+    facial = next(
+        s for s in registro["senales"] if s["signal_id"] == "facial.similarity"
+    )
+    # Hay selfie, asi que el motivo ya no puede ser "no se aporto selfie".
+    #
+    # Aqui dice que el fallo esta en el ANVERSO, y es correcto: la cedula
+    # sintetica lleva un rectangulo gris donde va el retrato, asi que el
+    # documento falla antes de que se llegue a mirar la selfie. La rama del
+    # lado de la selfie se cubre en tests/test_pipeline_facial.py con un
+    # doble del lector, porque probarla aqui exigiria una cara real y los
+    # tests no pueden depender de fotos que no estan en el repositorio.
+    assert facial["disponible"] is False
+    assert "no se aporto" not in facial["motivo_indisponible"]
+    assert "en el anverso del documento" in facial["motivo_indisponible"]
+
+
+def test_una_selfie_que_no_es_imagen_se_rechaza_con_422(tmp_path):
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    datos = persona()
+
+    respuesta = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(render_front(datos)), "image/png"),
+            "reverso": ("reverso.png", png(render_back(datos)), "image/png"),
+            "selfie": ("nota.txt", b"esto no es una cara", "text/plain"),
+        },
+    )
+
+    assert respuesta.status_code == 422
+    assert "selfie" in respuesta.json()["detail"]
