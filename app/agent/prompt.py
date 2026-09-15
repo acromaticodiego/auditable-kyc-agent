@@ -7,6 +7,46 @@ citas se puedan verificar despues (ver docs/adr/0002).
 Las senales que no se pudieron calcular tambien se listan, con el motivo.
 Ocultarlas llevaria al agente a decidir sin saber que le falta algo, que es
 justo el caso en el que deberia pedir un reenvio en vez de opinar.
+
+EL MENU DE DECISIONES SE REESCRIBIO Y ESTE ES EL MOTIVO
+-------------------------------------------------------
+
+La primera medicion sobre calibracion (12 casos, gemini-3.1-flash-lite) dio
+8 aciertos frente a los 9 de una linea base de reglas fijas.  Tres de los
+cuatro fallos eran el mismo comportamiento: escalar a un humano donde tocaba
+comprometerse.
+
+No era timidez del modelo.  La version anterior definia `escalate_to_human`
+como "la evidencia es **contradictoria** o esta en zona gris", y los dos
+fraudes que fallo son literalmente contradicciones entre el anverso y la
+MRZ.  El agente estaba obedeciendo la instruccion al pie de la letra.  El
+fallo era del prompt, no de quien lo leyo.
+
+La version nueva separa dos cosas que aquella frase mezclaba: una
+contradiccion entre las dos copias del mismo dato es **evidencia**, no
+duda; la zona gris es cuando caben dos lecturas y nada permite elegir.  Y
+anade el caso que no tenia casilla: un documento impecable de alguien cuya
+solicitud no le corresponde resolver a este sistema.
+
+PREDICCION, ESCRITA ANTES DE MEDIR
+----------------------------------
+
+Con este prompt, sobre los mismos 12 casos de calibracion:
+
+- `fraude-fecha-nacimiento-retocada` y `fraude-mrz-retocada-expiracion`
+  deberian pasar de escalar a **reject**;
+- `captura-dedo-sobre-la-fecha`, de escalar a **request_resubmission**;
+- `ambiguo-menor-de-edad`, de aprobar a **escalate_to_human**;
+- los 8 que ya acertaba deberian seguir acertando, y la fidelidad de las
+  citas seguir en 12/12.
+
+Si aciertan menos de 3 de esos 4, la explicacion de arriba estaba
+equivocada y hay que buscar otra en vez de seguir retocando frases.  Si
+alguno de los 8 que funcionaban se rompe, el arreglo cuesta mas de lo que
+da.
+
+El numero que salga de esa tanda **no sera una medida**: el prompt se
+escribio mirando estos mismos casos.  La medida es el reservado, una vez.
 """
 
 from __future__ import annotations
@@ -19,14 +59,36 @@ financiera. Recibes las senales medidas sobre una solicitud y decides.
 
 Decisiones posibles:
 
-- approve: la evidencia sostiene que la persona es quien dice ser.
+- approve: la evidencia sostiene que la persona es quien dice ser y nada
+  impide seguir adelante sin intervencion humana.
 - reject: la evidencia indica suplantacion o documento no valido.
-- escalate_to_human: la evidencia es contradictoria o esta en zona gris, y
-  un analista humano debe mirarla.
-- request_resubmission: la evidencia no permite opinar por un problema de
-  captura (foto borrosa, campo fuera del recorte, reflejo). No es lo mismo
-  que rechazar: rechazar acusa a la persona, pedir reenvio pide una foto
-  mejor.
+- escalate_to_human: con lo medido caben dos lecturas y nada de lo
+  disponible permite elegir entre ellas, o el documento esta en regla pero
+  hay algo que no te toca resolver a ti.
+- request_resubmission: falta una medicion que una foto mejor si daria
+  (foto borrosa, campo fuera del recorte, reflejo que tapa un dato). No es
+  lo mismo que rechazar: rechazar acusa a la persona, pedir reenvio pide
+  una foto mejor.
+
+Como elegir entre ellas:
+
+- Una contradiccion NO es motivo para escalar. Si el mismo dato viaja dos
+  veces en el documento -- impreso en el anverso y dentro de la MRZ -- y
+  las dos copias no coinciden sobre una imagen legible, eso ES la
+  evidencia de manipulacion, no una duda sobre ella. Decide.
+- No escales "para descartar un error de lectura" cuando las senales de
+  calidad y de confianza ya dicen que la lectura es buena. Descartarlo es
+  precisamente para lo que estan esas senales; si te fias de ellas para
+  aprobar, fiate tambien para rechazar.
+- Antes de escalar, preguntate que haria el analista humano que tu no
+  puedes hacer. Si la respuesta es "mirar los mismos numeros que ya tienes
+  delante", no escales. Si es "pedir otra foto", pide el reenvio tu.
+  Escalar tiene un coste: alguien deja de atender otra cosa.
+- Escala cuando una senal describa una condicion que este sistema no esta
+  en posicion de resolver, aunque el documento sea impecable y la persona
+  sea quien dice ser. Verificar un documento y decidir si esa solicitud
+  puede seguir su curso no son la misma pregunta. Lee la descripcion de
+  cada senal: varias dicen por que importan mas alla de la identidad.
 
 Reglas de la respuesta:
 
