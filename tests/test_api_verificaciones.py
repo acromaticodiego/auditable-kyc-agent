@@ -328,3 +328,69 @@ def test_una_verificacion_que_no_existe_da_404(tmp_path):
     respuesta = cliente.get(f"/verificaciones/{uuid.uuid4()}")
 
     assert respuesta.status_code == 404
+
+
+def test_un_fichero_enorme_se_rechaza_sin_cargarlo_entero(tmp_path):
+    """Leer y medir despues no defiende de nada.
+
+    Para cuando se sabe que son 2 GB, los 2 GB ya estan en memoria. Aqui se
+    envia algo por encima del tope y se espera un 413 antes de que nada lo
+    intente abrir como imagen.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    demasiado = b"\x00" * (11 * 1024 * 1024)
+
+    respuesta = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("grande.png", demasiado, "image/png"),
+            "reverso": ("reverso.png", png(render_back(persona())), "image/png"),
+        },
+    )
+
+    assert respuesta.status_code == 413
+    assert "anverso" in respuesta.json()["detail"]
+
+
+def test_una_imagen_bomba_se_rechaza_por_sus_dimensiones(tmp_path):
+    """Pocos bytes comprimidos que se expanden a gigabytes al descomprimir.
+
+    PIL trae un tope propio pero por debajo del doble solo AVISA, asi que
+    una imagen de 100 megapixeles pasaba entera y acababa en Tesseract. Se
+    rechaza mirando las dimensiones de la cabecera, antes de descomprimir.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+
+    # 12000x12000 = 144 millones de pixeles en un PNG de un solo color, que
+    # comprime a unos pocos kilobytes: pasa cualquier tope de tamano.
+    bomba = io.BytesIO()
+    Image.new("L", (12000, 12000), color=0).save(bomba, format="PNG")
+    assert len(bomba.getvalue()) < 1024 * 1024
+
+    respuesta = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("bomba.png", bomba.getvalue(), "image/png"),
+            "reverso": ("reverso.png", png(render_back(persona())), "image/png"),
+        },
+    )
+
+    assert respuesta.status_code == 413
+    assert "pixeles" in respuesta.json()["detail"]
+
+
+def test_una_imagen_truncada_se_rechaza_con_422_y_no_con_500(tmp_path):
+    """Un PNG cortado por la mitad revienta en load(), no en open()."""
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    entera = png(render_front(persona()))
+
+    respuesta = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("cortada.png", entera[: len(entera) // 2], "image/png"),
+            "reverso": ("reverso.png", png(render_back(persona())), "image/png"),
+        },
+    )
+
+    assert respuesta.status_code == 422
+    assert "anverso" in respuesta.json()["detail"]

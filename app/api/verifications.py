@@ -28,6 +28,21 @@ from app.storage import verifications as almacen
 
 router = APIRouter(tags=["verificaciones"])
 
+# Tope por fichero.  Una foto de cedula de un movil actual pesa entre 1 y 5
+# MB; 10 deja margen de sobra para una captura generosa y corta la subida de
+# 2 GB que dejaria al proceso sin memoria antes de llegar al OCR.
+#
+# Se comprueba leyendo a trozos y no con Content-Length: la cabecera la
+# escribe quien sube el fichero y puede mentir.
+MAX_BYTES_POR_FICHERO = 10 * 1024 * 1024
+
+# Tope de pixeles.  PIL trae uno propio (89 millones) pero por debajo del
+# doble solo AVISA, asi que una imagen de 100 megapixeles pasa entera y
+# acaba en Tesseract, que es donde duele.  Una cedula fotografiada de cerca
+# con un movil de 48 MP no llega a 50 millones; 40 es holgado para un
+# documento y deja fuera lo que solo puede ser un ataque o un error.
+MAX_PIXELES = 40_000_000
+
 
 def get_agent_client() -> GeminiClient:
     """El cliente del modelo, como dependencia para poder sustituirlo.
@@ -43,18 +58,66 @@ def get_agent_client() -> GeminiClient:
     )
 
 
+async def _leer_acotado(fichero: UploadFile, campo: str) -> bytes:
+    """Lee el fichero sin pasar del tope, en vez de leerlo y medirlo despues.
+
+    Leerlo entero y comprobar el tamano al final no defiende de nada: para
+    cuando se sabe que son 2 GB, los 2 GB ya estan en memoria.
+    """
+    trozos: list[bytes] = []
+    total = 0
+    while trozo := await fichero.read(64 * 1024):
+        total += len(trozo)
+        if total > MAX_BYTES_POR_FICHERO:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"el fichero enviado en '{campo}' supera el maximo de "
+                    f"{MAX_BYTES_POR_FICHERO // (1024 * 1024)} MB"
+                ),
+            )
+        trozos.append(trozo)
+    return b"".join(trozos)
+
+
 def _abrir(fichero: UploadFile, contenido: bytes, campo: str) -> Image.Image:
-    try:
-        imagen = Image.open(io.BytesIO(contenido))
-        imagen.load()
-    except (UnidentifiedImageError, OSError) as error:
-        raise HTTPException(
+    def rechazar(motivo: str, error: Exception) -> HTTPException:
+        return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"el fichero enviado en '{campo}' no se pudo abrir como imagen "
+                f"el fichero enviado en '{campo}' {motivo} "
                 f"(nombre: {fichero.filename!r})"
             ),
-        ) from error
+        )
+
+    try:
+        imagen = Image.open(io.BytesIO(contenido))
+    except (UnidentifiedImageError, OSError) as error:
+        raise rechazar("no se pudo abrir como imagen", error) from error
+
+    # El tamano se mira ANTES de `load()`, que es lo unico que sirve: la
+    # cabecera de un PNG declara sus dimensiones en unos pocos bytes, y una
+    # imagen bomba son justamente pocos bytes comprimidos que se expanden a
+    # gigabytes al descomprimirlos. Comprobarlo despues de cargarla seria
+    # comprobarlo cuando ya no hay nada que salvar.
+    anchura, altura = imagen.size
+    if anchura * altura > MAX_PIXELES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"la imagen enviada en '{campo}' tiene {anchura}x{altura} "
+                f"pixeles y el maximo son {MAX_PIXELES:,}"
+            ),
+        )
+
+    try:
+        imagen.load()
+    except Image.DecompressionBombError as error:
+        # No hereda de OSError, asi que sin esta rama subiria como un 500.
+        raise rechazar("es una imagen desproporcionada", error) from error
+    except OSError as error:
+        raise rechazar("esta truncado o corrupto", error) from error
+
     return imagen.convert("RGB")
 
 
@@ -68,8 +131,8 @@ async def crear_verificacion(
     reverso: UploadFile = File(..., description="Foto del reverso, con la MRZ"),
     modelo: GeminiClient = Depends(get_agent_client),
 ) -> dict:
-    bytes_anverso = await anverso.read()
-    bytes_reverso = await reverso.read()
+    bytes_anverso = await _leer_acotado(anverso, "anverso")
+    bytes_reverso = await _leer_acotado(reverso, "reverso")
 
     imagen_anverso = _abrir(anverso, bytes_anverso, "anverso")
     imagen_reverso = _abrir(reverso, bytes_reverso, "reverso")
