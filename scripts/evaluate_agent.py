@@ -88,6 +88,11 @@ def evaluar(
     """
     aciertos = 0
     fieles = 0
+    completas = 0
+    # Cuantos casos tenian de verdad algo que omitir. Sin este numero, la
+    # completitud de un conjunto sin senales adversas sale perfecta sin
+    # merito, y el porcentaje solo pareceria bueno.
+    con_algo_que_omitir = 0
     citas_totales = 0
     citas_validas = 0
     contestados = 0
@@ -141,6 +146,9 @@ def evaluar(
         agente_ok = run.effective_decision is caso.expected_decision
         aciertos += agente_ok
         fieles += run.faithful
+        completas += run.complete
+        if run.completeness is not None and run.completeness.adverse:
+            con_algo_que_omitir += 1
         if run.audit is not None:
             citas_totales += len(run.audit.results)
             citas_validas += sum(1 for r in run.audit.results if r.valid)
@@ -171,6 +179,8 @@ def evaluar(
         "aciertos": aciertos,
         "fieles": fieles,
         "citas": (citas_validas, citas_totales),
+        "completas": completas,
+        "con_algo_que_omitir": con_algo_que_omitir,
         "base_aciertos": base_aciertos,
         "base_en_contestados": base_en_contestados,
         "finales": finales,
@@ -212,10 +222,19 @@ def informar(datos: dict, split: str, modelo: str) -> None:
     print(f"  Sobre los {contestados} casos que el agente contesto:")
     print(f"    agente             {datos['aciertos']}/{contestados} aciertos")
     print(f"    linea base         {datos['base_en_contestados']}/{contestados} aciertos")
-    print(f"    explicaciones fieles del agente {datos['fieles']}/{contestados}")
+    print(f"    explicaciones fieles     {datos['fieles']}/{contestados}")
+    print(f"    explicaciones completas  {datos['completas']}/{contestados}")
     validas, totales = datos["citas"]
     if totales:
-        print(f"    citas verificadas  {validas}/{totales} correctas")
+        print(f"    citas verificadas        {validas}/{totales} correctas")
+    print(
+        f"    de esos casos, {datos['con_algo_que_omitir']} tenian alguna senal "
+        "adversa que citar"
+    )
+    print(
+        "    (fiel = nada de lo que dijo es falso; completa = no se callo "
+        "ninguna adversa)"
+    )
 
     print()
     print(
