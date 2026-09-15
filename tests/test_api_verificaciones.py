@@ -411,3 +411,111 @@ def test_el_tope_de_pixeles_se_mantiene_por_debajo_del_de_pil():
     from app.api.verifications import MAX_PIXELES
 
     assert MAX_PIXELES < 2 * Image.MAX_IMAGE_PIXELS
+
+
+RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA = {
+    "decision": "approve",
+    "summary": "El documento parece correcto segun lo comprobado.",
+    "groundings": [
+        {
+            "signal_id": "mrz.checks_ok",
+            "cited_value": "True",
+            "weight": "in_favor",
+            "text": "Los digitos de control de la MRZ cuadran todos.",
+        }
+    ],
+}
+
+
+def _con_apellido_retocado():
+    """Un anverso cuyo apellido no coincide con el de la MRZ.
+
+    Se retoca lo impreso y se deja la MRZ original, que es el fraude que
+    solo ve el cotejo entre las dos copias del mismo dato.
+    """
+    from app.synthetic.tampering import retouch_front
+
+    datos = persona()
+    retocados, mrz_original = retouch_front(datos, surnames="WALTEROZ")
+    return render_front(retocados), render_back(datos, mrz_lines=mrz_original)
+
+
+def test_una_explicacion_verdadera_pero_incompleta_queda_marcada(tmp_path, creadas):
+    """El caso que justifica la segunda metrica, de punta a punta.
+
+    El agente aprueba citando con toda exactitud que la MRZ cuadra, y se
+    calla que el apellido del anverso no coincide con el de la MRZ. La
+    respuesta tiene que decir que es fiel Y que esta incompleta, y decir
+    tambien QUE se callo: un booleano a secas obliga a buscarlo a mano
+    entre 28 senales.
+    """
+    cliente = api(
+        cliente_falso(tmp_path, json.dumps(RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA))
+    )
+    anverso, reverso = _con_apellido_retocado()
+
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    creadas.append(uuid.UUID(cuerpo["id"]))
+
+    assert cuerpo["explicacion_fiel"] is True
+    assert cuerpo["explicacion_completa"] is False
+    assert "cross.surnames" in cuerpo["senales_adversas_omitidas"]
+
+
+def test_la_senal_callada_queda_marcada_en_su_propia_fila(tmp_path, creadas):
+    """Lo que permite preguntar que se calla el agente mas a menudo.
+
+    Si las omisiones vivieran como una lista de texto en la cabecera, esa
+    consulta seria un LIKE sobre una cadena. Aqui es un WHERE.
+    """
+    cliente = api(
+        cliente_falso(tmp_path, json.dumps(RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA))
+    )
+    anverso, reverso = _con_apellido_retocado()
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    verificacion_id = uuid.UUID(cuerpo["id"])
+    creadas.append(verificacion_id)
+
+    with engine.connect() as conexion:
+        calladas = conexion.execute(
+            sa.select(verificacion_senales.c.signal_id).where(
+                verificacion_senales.c.verificacion_id == verificacion_id,
+                verificacion_senales.c.omitida.is_(True),
+            )
+        ).scalars().all()
+        adversas = conexion.execute(
+            sa.select(verificacion_senales.c.signal_id).where(
+                verificacion_senales.c.verificacion_id == verificacion_id,
+                verificacion_senales.c.adversa.is_(True),
+            )
+        ).scalars().all()
+
+    assert list(calladas) == ["cross.surnames"]
+    assert list(adversas) == ["cross.surnames"]
+
+
+def test_un_documento_limpio_sale_completo(tmp_path, creadas):
+    """Sin senales adversas no hay nada que callar, y eso no es merito.
+
+    Se comprueba igualmente para que la metrica no de incompleto por
+    defecto, que seria el error simetrico y mucho mas ruidoso.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+
+    cuerpo = subir(cliente).json()
+    creadas.append(uuid.UUID(cuerpo["id"]))
+
+    assert cuerpo["explicacion_completa"] is True
+    assert cuerpo["senales_adversas_omitidas"] == []

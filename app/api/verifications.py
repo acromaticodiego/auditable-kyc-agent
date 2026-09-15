@@ -166,6 +166,13 @@ async def crear_verificacion(
         "resultado_del_agente": guardada.resultado,
         "resumen": run.decision.summary if run.decision is not None else None,
         "explicacion_fiel": run.faithful,
+        "explicacion_completa": run.complete,
+        # Las senales adversas que la explicacion no menciona viajan en la
+        # respuesta, no solo el booleano. Decir "incompleta" sin decir que
+        # falta obliga a quien la recibe a buscarlo a mano entre 28 senales.
+        "senales_adversas_omitidas": (
+            run.completeness.omitted if run.completeness is not None else []
+        ),
         "fundamentos": [
             {
                 "signal_id": fundamento.signal_id,

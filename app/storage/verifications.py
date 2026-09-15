@@ -44,6 +44,9 @@ def guardar(
 ) -> VerificacionGuardada:
     verificacion_id = uuid.uuid4()
 
+    adversas = set(run.completeness.adverse) if run.completeness else set()
+    omitidas = set(run.completeness.omitted) if run.completeness else set()
+
     filas_senales = [
         {
             "verificacion_id": verificacion_id,
@@ -54,6 +57,8 @@ def guardar(
             "valor": None if not senal.available else str(senal.value),
             "disponible": senal.available,
             "motivo_indisponible": senal.unavailable_reason,
+            "adversa": senal.id in adversas,
+            "omitida": senal.id in omitidas,
         }
         for senal in run.signals
     ]
@@ -112,6 +117,7 @@ def guardar(
         ),
         "citas_totales": len(filas_fundamentos),
         "explicacion_fiel": run.faithful,
+        "explicacion_completa": run.complete,
     }
 
     with engine.begin() as conexion:

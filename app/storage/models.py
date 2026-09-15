@@ -67,6 +67,14 @@ verificaciones = sa.Table(
     sa.Column("citas_validas", sa.Integer, nullable=False, server_default="0"),
     sa.Column("citas_totales", sa.Integer, nullable=False, server_default="0"),
     sa.Column("explicacion_fiel", sa.Boolean, nullable=False, server_default=sa.false()),
+    # Fiel y completa son dos cosas distintas y las dos hacen falta: la
+    # primera dice que nada de lo que el agente afirmo es falso, la segunda
+    # que no se callo ninguna senal que jugara en contra.  Una explicacion
+    # puede ser verdadera entera y esconder lo unico que importaba; ver
+    # app/domain/completeness.py.
+    sa.Column(
+        "explicacion_completa", sa.Boolean, nullable=False, server_default=sa.false()
+    ),
 )
 
 verificacion_senales = sa.Table(
@@ -92,6 +100,15 @@ verificacion_senales = sa.Table(
     sa.Column("valor", sa.Text, nullable=True),
     sa.Column("disponible", sa.Boolean, nullable=False),
     sa.Column("motivo_indisponible", sa.Text, nullable=True),
+    # Si esta senal, con este valor, jugaba en contra de la solicitud.
+    sa.Column("adversa", sa.Boolean, nullable=False, server_default=sa.false()),
+    # Si jugaba en contra y la explicacion no la menciono.
+    #
+    # Va aqui, en la fila de cada senal, y no como una lista en la cabecera,
+    # porque asi se puede preguntar lo que de verdad quiere saber un
+    # auditor: que se calla el agente mas a menudo. Con una lista de texto
+    # esa consulta seria un LIKE sobre una cadena.
+    sa.Column("omitida", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.UniqueConstraint("verificacion_id", "signal_id", name="uq_senal_por_verificacion"),
 )
 
