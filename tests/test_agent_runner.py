@@ -233,3 +233,46 @@ def test_repetir_la_misma_verificacion_no_gasta_una_segunda_peticion(tmp_path):
     assert not primera.from_cache
     assert segunda.from_cache
     assert segunda.effective_decision is primera.effective_decision
+
+
+def test_el_bucle_audita_tambien_lo_que_la_explicacion_se_callo(tmp_path):
+    """Las dos auditorias salen de la misma vuelta, sin gastar otra peticion.
+
+    Importa para la evaluacion: si la completitud se calculara aparte, medir
+    las dos cosas costaria dos tandas de 12 peticiones en vez de una.
+    """
+    senales_con_discrepancia = SignalSet(
+        [
+            Signal("cross.surnames", SignalKind.TEXT,
+                   "Cotejo del apellido entre anverso y MRZ.", value="mismatch"),
+            Signal("document.expired", SignalKind.FLAG,
+                   "El documento esta vencido a dia de hoy.", value=False),
+            Signal("facial.similarity", SignalKind.SCORE,
+                   "Similitud entre las dos caras.", value=0.89),
+        ]
+    )
+
+    run = run_agent(
+        senales_con_discrepancia,
+        cliente(tmp_path, json.dumps(DECISION_VALIDA)),
+    )
+
+    # La decision de ejemplo cita document.expired y facial.similarity, las
+    # dos con su valor real, y no menciona la discrepancia del apellido.
+    assert run.outcome is RunOutcome.DECIDED
+    assert run.faithful
+    assert not run.complete
+    assert run.completeness.omitted == ["cross.surnames"]
+
+
+def test_una_vuelta_sin_decision_no_es_completa_ni_incompleta(tmp_path):
+    """Se cuenta como no completa, por el mismo motivo que `faithful`.
+
+    Si callar saliera gratis en esta metrica, el modelo que no contesta
+    sacaria mejor nota que el que contesta y omite algo.
+    """
+    run = run_agent(senales(), cliente(tmp_path, "esto no es json"))
+
+    assert run.outcome is RunOutcome.MALFORMED
+    assert run.completeness is None
+    assert not run.complete

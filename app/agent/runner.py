@@ -46,6 +46,7 @@ from app.agent.gemini import (
 from app.agent.prompt import build_prompt
 from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.domain.citation_audit import AuditReport, audit_citations
+from app.domain.completeness import CompletenessReport, audit_completeness
 from app.domain.decision import AgentDecision, DecisionKind
 from app.domain.signals import SignalSet
 
@@ -86,6 +87,7 @@ class AgentRun:
     model: str
     decision: AgentDecision | None = None
     audit: AuditReport | None = None
+    completeness: CompletenessReport | None = None
     from_cache: bool = False
     error: str | None = None
 
@@ -102,6 +104,16 @@ class AgentRun:
         if self.decision is None:
             return FALLBACK_DECISION
         return self.decision.decision
+
+    @property
+    def complete(self) -> bool:
+        """Si la explicacion menciona todas las senales que jugaban en contra.
+
+        Distinta de `faithful` a proposito: una explicacion puede ser
+        verdadera entera y aun asi callarse lo unico que importaba. Ver
+        app/domain/completeness.py.
+        """
+        return self.completeness is not None and self.completeness.complete
 
     @property
     def faithful(self) -> bool:
@@ -156,5 +168,6 @@ def run_agent(signals: SignalSet, client: GeminiClient) -> AgentRun:
         model=response.model,
         decision=decision,
         audit=audit_citations(decision, signals),
+        completeness=audit_completeness(decision, signals),
         from_cache=response.from_cache,
     )

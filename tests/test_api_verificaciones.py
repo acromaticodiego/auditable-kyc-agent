@@ -411,3 +411,200 @@ def test_el_tope_de_pixeles_se_mantiene_por_debajo_del_de_pil():
     from app.api.verifications import MAX_PIXELES
 
     assert MAX_PIXELES < 2 * Image.MAX_IMAGE_PIXELS
+
+
+RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA = {
+    "decision": "approve",
+    "summary": "El documento parece correcto segun lo comprobado.",
+    "groundings": [
+        {
+            "signal_id": "mrz.checks_ok",
+            "cited_value": "True",
+            "weight": "in_favor",
+            "text": "Los digitos de control de la MRZ cuadran todos.",
+        }
+    ],
+}
+
+
+def _con_apellido_retocado():
+    """Un anverso cuyo apellido no coincide con el de la MRZ.
+
+    Se retoca lo impreso y se deja la MRZ original, que es el fraude que
+    solo ve el cotejo entre las dos copias del mismo dato.
+    """
+    from app.synthetic.tampering import retouch_front
+
+    datos = persona()
+    retocados, mrz_original = retouch_front(datos, surnames="WALTEROZ")
+    return render_front(retocados), render_back(datos, mrz_lines=mrz_original)
+
+
+def test_una_explicacion_verdadera_pero_incompleta_queda_marcada(tmp_path, creadas):
+    """El caso que justifica la segunda metrica, de punta a punta.
+
+    El agente aprueba citando con toda exactitud que la MRZ cuadra, y se
+    calla que el apellido del anverso no coincide con el de la MRZ. La
+    respuesta tiene que decir que es fiel Y que esta incompleta, y decir
+    tambien QUE se callo: un booleano a secas obliga a buscarlo a mano
+    entre 28 senales.
+    """
+    cliente = api(
+        cliente_falso(tmp_path, json.dumps(RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA))
+    )
+    anverso, reverso = _con_apellido_retocado()
+
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    creadas.append(uuid.UUID(cuerpo["id"]))
+
+    assert cuerpo["explicacion_fiel"] is True
+    assert cuerpo["explicacion_completa"] is False
+    assert "cross.surnames" in cuerpo["senales_adversas_omitidas"]
+
+
+def test_la_senal_callada_queda_marcada_en_su_propia_fila(tmp_path, creadas):
+    """Lo que permite preguntar que se calla el agente mas a menudo.
+
+    Si las omisiones vivieran como una lista de texto en la cabecera, esa
+    consulta seria un LIKE sobre una cadena. Aqui es un WHERE.
+    """
+    cliente = api(
+        cliente_falso(tmp_path, json.dumps(RESPUESTA_QUE_SE_CALLA_LA_DISCREPANCIA))
+    )
+    anverso, reverso = _con_apellido_retocado()
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    verificacion_id = uuid.UUID(cuerpo["id"])
+    creadas.append(verificacion_id)
+
+    with engine.connect() as conexion:
+        calladas = conexion.execute(
+            sa.select(verificacion_senales.c.signal_id).where(
+                verificacion_senales.c.verificacion_id == verificacion_id,
+                verificacion_senales.c.omitida.is_(True),
+            )
+        ).scalars().all()
+        adversas = conexion.execute(
+            sa.select(verificacion_senales.c.signal_id).where(
+                verificacion_senales.c.verificacion_id == verificacion_id,
+                verificacion_senales.c.adversa.is_(True),
+            )
+        ).scalars().all()
+
+    assert list(calladas) == ["cross.surnames"]
+    assert list(adversas) == ["cross.surnames"]
+
+    # Y la cabecera tiene que decir lo mismo que sus filas.
+    #
+    # Sin esta comprobacion la columna no la miraba nadie: mutar el codigo
+    # para que guardara siempre `True` dejaba pasar los diecisiete tests,
+    # porque todos miraban la respuesta HTTP y ninguno releia lo guardado.
+    registro = cliente.get(f"/verificaciones/{verificacion_id}").json()
+    assert registro["explicacion_completa"] is False
+    assert registro["explicacion_fiel"] is True
+
+
+def test_un_documento_limpio_sale_completo(tmp_path, creadas):
+    """Sin senales adversas no hay nada que callar, y eso no es merito.
+
+    Se comprueba igualmente para que la metrica no de incompleto por
+    defecto, que seria el error simetrico y mucho mas ruidoso.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+
+    cuerpo = subir(cliente).json()
+    creadas.append(uuid.UUID(cuerpo["id"]))
+
+    assert cuerpo["explicacion_completa"] is True
+    assert cuerpo["senales_adversas_omitidas"] == []
+
+    registro = cliente.get(f"/verificaciones/{cuerpo['id']}").json()
+    assert registro["explicacion_completa"] is True
+    assert all(not senal["adversa"] for senal in registro["senales"])
+
+
+def test_las_senales_adversas_se_marcan_aunque_el_agente_no_contestara(
+    tmp_path, creadas
+):
+    """Es cuando mas falta hacen: ese expediente lo abre una persona.
+
+    Con el proveedor caido no hay decision y por tanto no hay informe de
+    completitud, pero las senales SI se midieron. Sacar las adversas de ese
+    informe las perdia justo en las verificaciones que acaban en revision
+    humana, que es donde saber que hay una discrepancia es lo unico que hay.
+    """
+    cliente = api(cliente_falso(tmp_path, "sobrecargado", status=503))
+    anverso, reverso = _con_apellido_retocado()
+
+    cuerpo = cliente.post(
+        "/verificaciones",
+        files={
+            "anverso": ("anverso.png", png(anverso), "image/png"),
+            "reverso": ("reverso.png", png(reverso), "image/png"),
+        },
+    ).json()
+    verificacion_id = uuid.UUID(cuerpo["id"])
+    creadas.append(verificacion_id)
+
+    assert cuerpo["resultado_del_agente"] == "unavailable"
+    assert cuerpo["decision"] == "escalate_to_human"
+
+    registro = cliente.get(f"/verificaciones/{verificacion_id}").json()
+    adversas = [s["signal_id"] for s in registro["senales"] if s["adversa"]]
+    omitidas = [s["signal_id"] for s in registro["senales"] if s["omitida"]]
+
+    assert adversas == ["cross.surnames"]
+    # Nada consta como callado: no hubo explicacion que pudiera callarlo.
+    assert omitidas == []
+
+
+def test_el_veredicto_de_una_cita_se_llama_igual_en_las_dos_rutas(tmp_path, creadas):
+    """El mismo concepto no puede tener dos nombres segun la ruta.
+
+    Lo tuvo: el POST devolvia 'auditoria' y el GET 'estado_auditoria',
+    porque el segundo salia directo de la columna de la tabla. Nadie lo noto
+    hasta que se publicaron los modelos de respuesta, que es tarde: quien se
+    hubiera integrado con las dos rutas ya habria escrito el parche.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    creado = subir(cliente).json()
+    creadas.append(uuid.UUID(creado["id"]))
+
+    registro = cliente.get(f"/verificaciones/{creado['id']}").json()
+
+    assert creado["fundamentos"][0]["auditoria"] == "valid"
+    assert registro["fundamentos"][0]["auditoria"] == "valid"
+    assert "estado_auditoria" not in registro["fundamentos"][0]
+
+
+def test_el_contrato_publicado_nombra_las_cuatro_decisiones(tmp_path):
+    """Quien abra /docs tiene que ver que puede responder este sistema.
+
+    Antes las tres rutas devolvian un `dict` y el esquema publicado era
+    'object con cualquier propiedad', que no dice nada. Este test recorre
+    DecisionKind para que una decision nueva en el dominio no se quede sin
+    aparecer en el contrato.
+    """
+    from app.domain.decision import DecisionKind
+
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    esquemas = cliente.get("/openapi.json").json()["components"]["schemas"]
+
+    assert set(esquemas["DecisionKind"]["enum"]) == {
+        decision.value for decision in DecisionKind
+    }
+    assert (
+        esquemas["VerificacionCreada"]["properties"]["decision"]["$ref"]
+        == "#/components/schemas/DecisionKind"
+    )

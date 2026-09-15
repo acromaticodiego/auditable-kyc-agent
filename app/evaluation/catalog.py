@@ -484,8 +484,75 @@ def _hard() -> list[Case]:
     ]
 
 
+def _over_escalation() -> list[Case]:
+    """Casos donde escalar a un humano seria el error.
+
+    Se anadieron **despues** de reescribir el menu de decisiones del prompt,
+    y eso hay que declararlo porque afecta a como se lee cualquier medida
+    que los incluya.
+
+    El motivo de anadirlos, sin embargo, es lo contrario de hacer trampa. La
+    primera medicion sobre calibracion mostro que el agente escalaba donde
+    tocaba comprometerse, y el prompt se corrigio diciendole que escale
+    cuando una senal describa una condicion que el sistema no esta en
+    posicion de resolver. El riesgo evidente de esa frase es que ahora
+    escale a cualquiera que sea joven o cuyo documento venza pronto, y con
+    un solo caso de elegibilidad en el catalogo -- `ambiguo-menor-de-edad`
+    -- no habia forma de distinguir si el agente aprendio el principio o si
+    le dimos la respuesta a ese caso concreto.
+
+    Estos dos casos existen para que el arreglo pueda salir mal de forma
+    visible. Si el agente los escala, el cambio del prompt cambio un error
+    por otro.
+    """
+    return [
+        Case(
+            id="elegibilidad-recien-mayor-de-edad",
+            description="Documento autentico de quien cumplio 18 hace un mes.",
+            expected_decision=DecisionKind.APPROVE,
+            reason=(
+                "Es el reverso de `ambiguo-menor-de-edad` y esta aqui para "
+                "que la regla de elegibilidad no se convierta en 'ante la "
+                "duda, que lo mire alguien'. Esta persona es adulta, su "
+                "documento es impecable y no hay nada que un analista pueda "
+                "anadir. Escalar por tener 18 anos recien cumplidos manda a "
+                "una cola humana a un cliente legitimo por una condicion que "
+                "el propio sistema puede resolver, y a escala eso es una "
+                "cola que no se vacia nunca."
+            ),
+            build=lambda: pair(person(birth_date=date(2008, 8, 20))),
+            tags=("elegibilidad", "legitimo"),
+        ),
+        Case(
+            id="vigencia-a-punto-de-vencer",
+            description="Cedula valida que caduca dentro de doce dias.",
+            expected_decision=DecisionKind.APPROVE,
+            reason=(
+                "El documento es valido hoy, que es cuando se le pregunta. "
+                "Pedir otro porque vence pronto seria inventarse un "
+                "requisito que nadie le dio al sistema, y escalarlo seria "
+                "pedirle a un analista que confirme una fecha que esta "
+                "impresa y ademas cuadra con la MRZ. La senal "
+                "`document.days_to_expiry` vale 12 y es cierta; lo que no se "
+                "sigue de ella es que haya nada que decidir."
+            ),
+            build=lambda: pair(
+                person(issue_date=date(2016, 9, 26), expiry_date=date(2026, 9, 26))
+            ),
+            tags=("elegibilidad", "legitimo", "vigencia"),
+        ),
+    ]
+
+
 def build_catalog() -> list[Case]:
-    cases = _legitimate() + _tampered() + _expired() + _bad_capture() + _hard()
+    cases = (
+        _legitimate()
+        + _tampered()
+        + _expired()
+        + _bad_capture()
+        + _hard()
+        + _over_escalation()
+    )
 
     identifiers = [case.id for case in cases]
     if len(set(identifiers)) != len(identifiers):

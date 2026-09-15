@@ -114,6 +114,34 @@ class RequestBudget:
             return {}
         return data if isinstance(data, dict) else {}
 
+    def spent_by_other_keys(self, model: str) -> int:
+        """Lo gastado hoy en este modelo por OTRAS claves distintas de la actual.
+
+        Existe por una trampa que se cobra el dia entero.  El cupo gratuito
+        va por proyecto de Google, no por clave: el cuerpo del 429 lo
+        identifica como `GenerateRequestsPerDayPerProjectPerModel`.  Pero
+        este contador reparte por huella de clave, porque el proyecto no
+        viaja en la credencial y es lo unico observable desde aqui.
+
+        La consecuencia es fea: rotar la clave -- algo razonable de hacer,
+        por ejemplo si la anterior se filtro -- deja el contador local a
+        cero mientras Google sigue contando lo mismo.  La herramienta diria
+        "quedan 20" y la primera peticion se comeria un 429.  Con este dato
+        al menos se puede avisar de que hay saldo gastado por otra clave y
+        de que, si comparten proyecto, no es saldo recuperable.
+
+        No se suma a `spent` a proposito: dos claves de proyectos DISTINTOS
+        si tienen cupos distintos, y sumarlas pararia tandas que caben. Se
+        informa y decide quien mira.
+        """
+        dia = self._load().get(self.today, {})
+        mio = self._slot(model)
+        return sum(
+            cuantas
+            for slot, cuantas in dia.items()
+            if slot != mio and slot.endswith(f":{model}")
+        )
+
     def spent(self, model: str) -> int:
         day = self._load().get(self.today, {})
         return day.get(self._slot(model), 0) + day.get(self._legacy_slot(model), 0)

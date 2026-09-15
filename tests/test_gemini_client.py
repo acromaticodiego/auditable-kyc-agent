@@ -486,3 +486,51 @@ def test_el_dia_del_cupo_si_cambia_en_la_medianoche_del_pacifico(monkeypatch):
     monkeypatch.setattr("app.agent.budget.datetime", RelojDeMedianochePacifico)
 
     assert RequestBudget().today == "2026-09-15"
+
+
+def test_ve_lo_gastado_hoy_por_otras_claves(tmp_path):
+    """Rotar la clave deja el contador a cero y Google sigue contando igual.
+
+    El cupo gratuito va por proyecto de Google, no por clave, asi que una
+    clave nueva dentro del mismo proyecto no concede nada. Este contador
+    reparte por clave porque el proyecto no viaja en la credencial, y esa
+    diferencia es la que se cobra: sin este dato, la herramienta diria
+    'quedan 20' justo despues de una rotacion y la primera peticion se
+    comeria un 429.
+    """
+    path = tmp_path / "budget.json"
+    vieja = RequestBudget(path, account="aaaaaaaaaaaa")
+    for _ in range(14):
+        vieja.record("gemini-test")
+
+    nueva = RequestBudget(path, account="bbbbbbbbbbbb")
+
+    assert nueva.spent("gemini-test") == 0
+    assert nueva.remaining("gemini-test") == 20
+    # Pero se puede avisar de que hay 14 gastadas por otra clave.
+    assert nueva.spent_by_other_keys("gemini-test") == 14
+
+
+def test_lo_gastado_por_otras_claves_no_cuenta_otros_modelos(tmp_path):
+    """El cupo es por modelo dentro del proyecto, asi que mezclarlos mentiria."""
+    path = tmp_path / "budget.json"
+    vieja = RequestBudget(path, account="aaaaaaaaaaaa")
+    vieja.record("gemini-uno")
+    vieja.record("gemini-uno")
+    vieja.record("gemini-dos")
+
+    nueva = RequestBudget(path, account="bbbbbbbbbbbb")
+
+    assert nueva.spent_by_other_keys("gemini-uno") == 2
+    assert nueva.spent_by_other_keys("gemini-dos") == 1
+
+
+def test_la_propia_clave_no_se_cuenta_como_ajena(tmp_path):
+    """Si se contara a si misma, el aviso saltaria siempre y dejaria de leerse."""
+    path = tmp_path / "budget.json"
+    mia = RequestBudget(path, account="aaaaaaaaaaaa")
+    for _ in range(5):
+        mia.record("gemini-test")
+
+    assert mia.spent("gemini-test") == 5
+    assert mia.spent_by_other_keys("gemini-test") == 0

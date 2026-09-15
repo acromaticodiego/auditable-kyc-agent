@@ -109,13 +109,26 @@ fundamento en la dirección de la decisión.
   fundamento en `AgentDecision` cierra el caso extremo de no citar nada,
   pero no el de citar sólo lo cómodo.
 
-  Lo que faltaría medir es la **completitud**: si existía alguna señal
-  adversa que la explicación no menciona. Es calculable y determinista —
-  un cotejo en `mismatch`, un documento vencido, unos dígitos de control
-  que no cuadran son adversos por construcción del dominio, no por
-  criterio de nadie— y no está hecho. Hasta que lo esté, cualquier cifra
-  de fidelidad de este proyecto debe leerse como «de lo que dijo, nada era
-  falso», nunca como «la explicación está completa».
+  Por eso se añadió una segunda medida, la **completitud**
+  (`app/domain/completeness.py`): si existía alguna señal adversa que la
+  explicación no menciona. Es calculable y determinista —un cotejo en
+  `mismatch`, un documento vencido, unos dígitos de control que no cuadran
+  son adversos por construcción del dominio, no por criterio de nadie— y
+  **no juzga la decisión, solo el silencio**: citar una señal adversa y
+  aun así aprobar es legítimo, y es justo lo que se quiere poder leer
+  después.
+
+  Su definición se eligió midiendo antes de fijarla. La primera versión
+  iba a contar la omisión únicamente cuando la decisión fuera `approve`,
+  con el argumento de que aprobar callándose algo adverso es lo que cuesta
+  dinero; contar las condiciones sobre los 12 casos de calibración la
+  descartó, porque ninguno de los casos cuya decisión correcta es aprobar
+  tiene una sola señal adversa, de modo que esa versión se habría cumplido
+  sola en los 12 y no habría medido nada.
+
+  Aun con las dos medidas, una cifra de fidelidad se lee como «de lo que
+  dijo, nada era falso», nunca como «la explicación está completa». Son dos
+  números y hay que publicar los dos.
 
 - Los identificadores de señal pasan a ser una interfaz pública. Renombrar
   `facial.similarity` invalida las citas de todas las decisiones ya

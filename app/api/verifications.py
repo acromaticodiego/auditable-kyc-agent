@@ -25,6 +25,11 @@ from app.agent.gemini import GeminiClient
 from app.agent.runner import run_agent
 from app.config import settings
 from app.db import engine
+from app.api.schemas import (
+    ResumenAuditoria,
+    VerificacionCreada,
+    VerificacionRegistrada,
+)
 from app.storage import verifications as almacen
 
 router = APIRouter(tags=["verificaciones"])
@@ -133,6 +138,7 @@ def _abrir(fichero: UploadFile, contenido: bytes, campo: str) -> Image.Image:
     "/verificaciones",
     status_code=status.HTTP_201_CREATED,
     summary="Verifica una cedula y registra la decision",
+    response_model=VerificacionCreada,
 )
 async def crear_verificacion(
     anverso: UploadFile = File(..., description="Foto del anverso de la cedula"),
@@ -166,6 +172,13 @@ async def crear_verificacion(
         "resultado_del_agente": guardada.resultado,
         "resumen": run.decision.summary if run.decision is not None else None,
         "explicacion_fiel": run.faithful,
+        "explicacion_completa": run.complete,
+        # Las senales adversas que la explicacion no menciona viajan en la
+        # respuesta, no solo el booleano. Decir "incompleta" sin decir que
+        # falta obliga a quien la recibe a buscarlo a mano entre 28 senales.
+        "senales_adversas_omitidas": (
+            run.completeness.omitted if run.completeness is not None else []
+        ),
         "fundamentos": [
             {
                 "signal_id": fundamento.signal_id,
@@ -189,6 +202,7 @@ async def crear_verificacion(
 @router.get(
     "/verificaciones/{verificacion_id}",
     summary="El registro completo de una verificacion",
+    response_model=VerificacionRegistrada,
 )
 def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
     """Devuelve tambien las senales medidas, no solo la decision.
@@ -202,4 +216,39 @@ def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"no hay ninguna verificacion con id {verificacion_id}",
         )
+
+    # El veredicto de una cita se llama `auditoria` en toda la API.
+    #
+    # En la base de datos la columna es `estado_auditoria`, y durante un
+    # tiempo esa diferencia se colo hasta fuera: el POST devolvia
+    # `auditoria` y este GET devolvia `estado_auditoria`, el mismo concepto
+    # con dos nombres segun la ruta. Nadie lo noto hasta que se publicaron
+    # los modelos de respuesta. Se traduce aqui, que es donde vive el
+    # contrato publico, en vez de renombrar la columna: el nombre de la
+    # tabla es asunto del almacen.
+    registro["fundamentos"] = [
+        {**fundamento, "auditoria": fundamento.pop("estado_auditoria")}
+        for fundamento in registro["fundamentos"]
+    ]
     return registro
+
+
+@router.get(
+    "/auditoria/resumen",
+    summary="Cuentas de todas las verificaciones registradas",
+    tags=["auditoria"],
+    response_model=ResumenAuditoria,
+)
+def resumen_de_auditoria() -> dict:
+    """Responde la pregunta que docs/adr/0004 deja planteada.
+
+    Cuantas solicitudes acaban en revision humana, y cuantas de esas por un
+    fallo del modelo en vez de por el documento. Un agente que incumple el
+    contrato en uno de cada tres casos manda un tercio de las solicitudes a
+    un analista, y eso lo descalifica por mucho que acierte en el resto.
+
+    Va bajo /auditoria y no bajo /verificaciones/resumen para no competir
+    con /verificaciones/{id}: 'resumen' no es un UUID, asi que esa ruta
+    respondia un 422 confuso en vez de este recuento.
+    """
+    return almacen.resumen(engine)

@@ -47,6 +47,11 @@ services:
       # Las imagenes generadas y las reales viven en el anfitrion.  data/real
       # esta en .gitignore y no entra nunca al repositorio.
       - ./data:/srv/data
+      # Los modelos de InsightFace se descargan solos la primera vez y pesan
+      # unos cientos de MB.  Si vivieran dentro del contenedor, cada
+      # reconstruccion de la imagen los tiraria y habria que volver a
+      # bajarlos, con un DNS que ademas falla de forma intermitente.
+      - ./modelos/insightface:/home/kyc/.insightface
     command:
       ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 

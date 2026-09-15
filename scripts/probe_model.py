@@ -52,6 +52,12 @@ def main() -> int:
     print(f"modelo:  {args.modelo}")
     print(f"caso:    {caso.id}")
     print(f"cupo:    {modelo.budget.remaining(args.modelo)} peticiones restantes")
+    ajenas = modelo.budget.spent_by_other_keys(args.modelo)
+    if ajenas:
+        plural = "peticion" if ajenas == 1 else "peticiones"
+        print(f"aviso:   otra clave ya gasto {ajenas} {plural} de este modelo hoy.")
+        print("         El cupo va por proyecto de Google, no por clave, asi que")
+        print("         rotar la credencial no lo recupera si comparten proyecto.")
     print("Midiendo senales (sin tocar la API)...")
 
     senales = build_signals(*caso.build(), today=TODAY)

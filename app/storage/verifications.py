@@ -16,6 +16,7 @@ import sqlalchemy as sa
 
 from app.agent.runner import AgentRun
 from app.domain.citation_audit import CitationStatus
+from app.domain.completeness import adverse_signals
 from app.storage.models import (
     verificacion_fundamentos,
     verificacion_senales,
@@ -44,6 +45,16 @@ def guardar(
 ) -> VerificacionGuardada:
     verificacion_id = uuid.uuid4()
 
+    # Que una senal juegue en contra no depende de que el agente llegara a
+    # contestar: se mide sobre las senales, no sobre la decision.  Sacarlas
+    # del informe de completitud las perdia justo en las verificaciones sin
+    # decision, que son las que acaban en manos de un analista humano y en
+    # las que saber que hay algo raro es lo unico que hay.
+    adversas = set(adverse_signals(run.signals))
+    # Lo omitido si necesita una decision: sin fundamentos no hay nada que
+    # se haya callado, porque no se dijo nada.
+    omitidas = set(run.completeness.omitted) if run.completeness else set()
+
     filas_senales = [
         {
             "verificacion_id": verificacion_id,
@@ -54,6 +65,8 @@ def guardar(
             "valor": None if not senal.available else str(senal.value),
             "disponible": senal.available,
             "motivo_indisponible": senal.unavailable_reason,
+            "adversa": senal.id in adversas,
+            "omitida": senal.id in omitidas,
         }
         for senal in run.signals
     ]
@@ -112,6 +125,7 @@ def guardar(
         ),
         "citas_totales": len(filas_fundamentos),
         "explicacion_fiel": run.faithful,
+        "explicacion_completa": run.complete,
     }
 
     with engine.begin() as conexion:
@@ -159,4 +173,99 @@ def obtener(engine: sa.Engine, verificacion_id: uuid.UUID) -> dict | None:
         **dict(cabecera),
         "senales": [dict(fila) for fila in senales],
         "fundamentos": [dict(fila) for fila in fundamentos],
+    }
+
+
+def resumen(engine: sa.Engine) -> dict:
+    """Las cuentas de todas las verificaciones registradas.
+
+    Existe para responder la pregunta que docs/adr/0004 deja planteada y sin
+    responder: **cuantas solicitudes acaban en revision humana, y cuantas de
+    esas por un fallo del modelo y no por el documento.**  Un agente que
+    incumple el contrato en uno de cada tres casos manda un tercio de las
+    solicitudes a un analista, y eso lo descalifica por mucho que acierte en
+    el resto.  Sin este recuento ese numero no se ve por ningun lado.
+
+    Se devuelven **recuentos y no porcentajes**.  Sobre cinco verificaciones
+    un porcentaje es una cifra con aspecto de medida que no mide nada, y
+    quien la lea de reojo la tratara como si midiera.  El denominador va
+    delante para que no se pueda leer el numerador sin el.
+    """
+    with engine.connect() as conexion:
+        total = conexion.execute(
+            sa.select(sa.func.count()).select_from(verificaciones)
+        ).scalar_one()
+
+        por_decision = dict(
+            conexion.execute(
+                sa.select(verificaciones.c.decision, sa.func.count())
+                .group_by(verificaciones.c.decision)
+                .order_by(sa.func.count().desc())
+            ).all()
+        )
+
+        por_resultado = dict(
+            conexion.execute(
+                sa.select(verificaciones.c.resultado, sa.func.count())
+                .group_by(verificaciones.c.resultado)
+                .order_by(sa.func.count().desc())
+            ).all()
+        )
+
+        # Los escalados que NO vienen de un juicio del agente sino de que no
+        # llego a haber juicio. Es el numero incomodo del ADR-0004.
+        escalados_por_fallo = conexion.execute(
+            sa.select(sa.func.count())
+            .select_from(verificaciones)
+            .where(verificaciones.c.resultado != "decided")
+        ).scalar_one()
+
+        # La fidelidad y la completitud solo significan algo sobre las
+        # verificaciones en las que el agente llego a explicarse. Meter en el
+        # denominador las que nunca tuvieron explicacion mediria la salud del
+        # proveedor y lo llamaria calidad del agente.
+        con_explicacion = conexion.execute(
+            sa.select(sa.func.count())
+            .select_from(verificaciones)
+            .where(verificaciones.c.resultado == "decided")
+        ).scalar_one()
+
+        fieles, completas = conexion.execute(
+            sa.select(
+                sa.func.count().filter(verificaciones.c.explicacion_fiel),
+                sa.func.count().filter(verificaciones.c.explicacion_completa),
+            ).where(verificaciones.c.resultado == "decided")
+        ).one()
+
+        # Que se calla el agente mas a menudo. Esta es la consulta que
+        # justifica haber guardado las omisiones en la fila de cada senal en
+        # vez de como una lista de texto en la cabecera.
+        mas_calladas = [
+            {"signal_id": signal_id, "veces": veces}
+            for signal_id, veces in conexion.execute(
+                sa.select(
+                    verificacion_senales.c.signal_id, sa.func.count().label("veces")
+                )
+                .where(verificacion_senales.c.omitida.is_(True))
+                .group_by(verificacion_senales.c.signal_id)
+                .order_by(sa.func.count().desc(), verificacion_senales.c.signal_id)
+                .limit(10)
+            ).all()
+        ]
+
+    return {
+        "verificaciones": total,
+        "por_decision": por_decision,
+        "por_resultado_del_agente": por_resultado,
+        "escalados_sin_juicio_del_agente": escalados_por_fallo,
+        "con_explicacion": con_explicacion,
+        "explicaciones_fieles": fieles,
+        "explicaciones_completas": completas,
+        "senales_adversas_mas_calladas": mas_calladas,
+        "advertencia": (
+            "Recuentos, no porcentajes. Fidelidad y completitud se cuentan "
+            "solo sobre las verificaciones con explicacion, porque meter en "
+            "el denominador las que nunca la tuvieron mediria la salud del "
+            "proveedor y lo llamaria calidad del agente."
+        ),
     }
