@@ -505,6 +505,15 @@ def test_la_senal_callada_queda_marcada_en_su_propia_fila(tmp_path, creadas):
     assert list(calladas) == ["cross.surnames"]
     assert list(adversas) == ["cross.surnames"]
 
+    # Y la cabecera tiene que decir lo mismo que sus filas.
+    #
+    # Sin esta comprobacion la columna no la miraba nadie: mutar el codigo
+    # para que guardara siempre `True` dejaba pasar los diecisiete tests,
+    # porque todos miraban la respuesta HTTP y ninguno releia lo guardado.
+    registro = cliente.get(f"/verificaciones/{verificacion_id}").json()
+    assert registro["explicacion_completa"] is False
+    assert registro["explicacion_fiel"] is True
+
 
 def test_un_documento_limpio_sale_completo(tmp_path, creadas):
     """Sin senales adversas no hay nada que callar, y eso no es merito.
@@ -519,3 +528,7 @@ def test_un_documento_limpio_sale_completo(tmp_path, creadas):
 
     assert cuerpo["explicacion_completa"] is True
     assert cuerpo["senales_adversas_omitidas"] == []
+
+    registro = cliente.get(f"/verificaciones/{cuerpo['id']}").json()
+    assert registro["explicacion_completa"] is True
+    assert all(not senal["adversa"] for senal in registro["senales"])
