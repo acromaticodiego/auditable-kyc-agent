@@ -8,15 +8,14 @@ siguiente medicion en otro numero elegido sobre sus propios datos.
 El script cuenta lo que va a costar ANTES de gastar nada.  Cada caso que ya
 esta en cache sale gratis; los que no, valen una peticion de las 20 del
 dia.  Si no alcanza, no empieza: dejar una tanda a medias no da una medida
-parcial, da doce casos de los que solo tres se midieron y nueve que
-escalaron por falta de cupo, que es un numero sin sentido que ademas invita
-a leerse como si lo tuviera.
+parcial, da doce casos de los que solo tres se midieron y nueve sin medir,
+que es un numero sin sentido que ademas invita a leerse como si lo tuviera.
 
 La primera version de esa cuenta estaba mal y salio caro.  Contaba una
 peticion por caso, pero el cliente reintenta una vez ante un 503, asi que
 un caso podia costar dos.  Una tanda que el plan cifro en 10 peticiones
 gasto 22 y no midio ni un solo caso: ocho 503 seguidos, cada uno cobrado
-dos veces, y un 429 al final.  De ahi salen las dos reglas de abajo.
+dos veces, y un 429 al final.  De ahi salen las dos reglas que hay abajo.
 
     docker compose exec api python scripts/evaluate_agent.py
     docker compose exec api python scripts/evaluate_agent.py --final
@@ -34,10 +33,9 @@ from app.agent.prompt import build_prompt
 from app.agent.runner import RunOutcome, run_agent
 from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.config import settings
-from app.domain.citation_audit import audit_citations
 from app.domain.signals import SignalSet
 from app.evaluation.baseline import decide as decide_baseline
-from app.evaluation.catalog import Case, TODAY, load_cases
+from app.evaluation.catalog import TODAY, Case, load_cases
 from app.evaluation.split import CALIBRATION, HOLDOUT
 from app.signals.pipeline import build_signals
 
@@ -47,10 +45,7 @@ ANCHO = 78
 def preparar(casos: list[Case]) -> dict[str, SignalSet]:
     """Calcula las senales de cada caso.  Es lento pero no gasta cupo."""
     print(f"Midiendo senales de {len(casos)} casos (OCR, sin tocar la API)...")
-    senales = {}
-    for caso in casos:
-        senales[caso.id] = build_signals(*caso.build(), today=TODAY)
-    return senales
+    return {caso.id: build_signals(*caso.build(), today=TODAY) for caso in casos}
 
 
 def contar_coste(
@@ -60,7 +55,9 @@ def contar_coste(
     return [
         caso
         for caso in casos
-        if not modelo.is_cached(build_prompt(senales[caso.id]), DECISION_RESPONSE_SCHEMA)
+        if not modelo.is_cached(
+            build_prompt(senales[caso.id]), DECISION_RESPONSE_SCHEMA
+        )
     ]
 
 
@@ -78,16 +75,30 @@ def coste_maximo(faltantes: list[Case], modelo: GeminiClient) -> int:
 def evaluar(
     casos: list[Case], senales: dict[str, SignalSet], modelo: GeminiClient
 ) -> dict:
+    """Recorre los casos y separa lo que es del agente de lo que es del proveedor.
+
+    La distincion no es cosmetica.  Un JSON que incumple el contrato SI es
+    un fallo del agente y cuenta en su contra, porque es el modelo el que
+    razono mal.  Un 503 no: ahi el agente no llego a opinar, y meterlo en el
+    denominador mediria la salud de la infraestructura de Google y lo
+    llamaria acierto del prompt.
+
+    Para el sistema en produccion los dos acaban igual, en revision humana
+    (ver docs/adr/0004).  Para medir al agente son cosas distintas.
+    """
     aciertos = 0
     fieles = 0
     citas_totales = 0
     citas_validas = 0
+    contestados = 0
+    perdidos: list[str] = []
     finales: Counter[str] = Counter()
     desacuerdos: list[tuple[str, str, str, str, str]] = []
     base_aciertos = 0
     interrumpida = False
 
-    print(f"\n{'caso':38} {'esperado':22} {'agente':22} {'base':10}")
+    print()
+    print("caso".ljust(38) + "esperado".ljust(22) + "agente".ljust(22) + "base")
     print("-" * ANCHO)
 
     for caso in casos:
@@ -95,16 +106,29 @@ def evaluar(
         base = decide_baseline(conjunto)
         base_ok = base.decision is caso.expected_decision
         base_aciertos += base_ok
+        marca_base = "ok" if base_ok else "XX"
 
         run = run_agent(conjunto, modelo)
-        finales[run.outcome.value] += 1
 
         if run.outcome is RunOutcome.OUT_OF_QUOTA:
-            print(f"\nSe acabo el cupo en {caso.id}. Se para la tanda.")
-            print(f"  {run.error}")
+            print()
+            print(f"Se acabo el cupo en {caso.id}. Se para la tanda.")
+            print("  " + (run.error or "")[:300])
             interrumpida = True
             break
 
+        finales[run.outcome.value] += 1
+
+        if run.outcome is RunOutcome.UNAVAILABLE:
+            perdidos.append(caso.id)
+            print(
+                caso.id.ljust(38)
+                + "(el proveedor no respondio)".ljust(44)
+                + marca_base
+            )
+            continue
+
+        contestados += 1
         agente_ok = run.effective_decision is caso.expected_decision
         aciertos += agente_ok
         fieles += run.faithful
@@ -112,10 +136,12 @@ def evaluar(
             citas_totales += len(run.audit.results)
             citas_validas += sum(1 for r in run.audit.results if r.valid)
 
-        marca = "ok" if agente_ok else "XX"
         print(
-            f"{caso.id:38} {caso.expected_decision.value:22} "
-            f"{run.effective_decision.value:22} {'ok' if base_ok else 'XX':4} {marca}"
+            caso.id.ljust(38)
+            + caso.expected_decision.value.ljust(22)
+            + run.effective_decision.value.ljust(22)
+            + marca_base.ljust(6)
+            + ("ok" if agente_ok else "XX")
         )
 
         if not agente_ok:
@@ -124,14 +150,14 @@ def evaluar(
                     caso.id,
                     caso.expected_decision.value,
                     run.effective_decision.value,
-                    run.decision.summary if run.decision else (run.error or ""),
+                    run.decision.summary if run.decision else (run.error or "")[:200],
                     caso.reason,
                 )
             )
 
-    medidos = sum(finales.values()) - (1 if interrumpida else 0)
     return {
-        "medidos": medidos,
+        "contestados": contestados,
+        "perdidos": perdidos,
         "total": len(casos),
         "aciertos": aciertos,
         "fieles": fieles,
@@ -144,41 +170,68 @@ def evaluar(
 
 
 def informar(datos: dict, split: str, modelo: str) -> None:
-    medidos = datos["medidos"]
-    print("\n" + "=" * ANCHO)
+    contestados = datos["contestados"]
+    total = datos["total"]
+
+    print()
+    print("=" * ANCHO)
     print(f"RESULTADO ({split}, modelo {modelo})")
     print("=" * ANCHO)
 
-    if medidos == 0:
+    if contestados != total:
+        # Va arriba y no en una nota al pie a proposito: quien lee esto de
+        # reojo tiene que tropezarse con el aviso antes que con el numero.
+        faltan = total - contestados
+        print(f"  TANDA INCOMPLETA: el agente contesto {contestados} de {total} casos.")
+        print(f"  Los {faltan} restantes no los midio nadie, asi que lo de abajo NO es")
+        print("  la medida del agente sobre este conjunto: es lo que se sabe hasta")
+        print("  ahora. Las respuestas buenas quedaron en cache, asi que repetir la")
+        print("  tanda cuando haya cupo solo paga por las que falten.")
+        print()
+
+    if contestados == 0:
         print("  No se midio ningun caso.")
+        if datos["perdidos"]:
+            print("  El proveedor no respondio en: " + ", ".join(datos["perdidos"]))
         return
 
-    print(f"  casos medidos        {medidos} de {datos['total']}")
-    print(f"  agente               {datos['aciertos']}/{medidos} aciertos")
-    print(f"  linea base           {datos['base_aciertos']}/{datos['total']} aciertos")
-    print(f"  explicaciones fieles {datos['fieles']}/{medidos}")
+    print(f"  agente               {datos['aciertos']}/{contestados} aciertos")
+    print(
+        f"  linea base           {datos['base_aciertos']}/{total} aciertos "
+        "(conjunto entero: no gasta cupo)"
+    )
+    print(f"  explicaciones fieles {datos['fieles']}/{contestados}")
     validas, totales = datos["citas"]
     if totales:
         print(f"  citas verificadas    {validas}/{totales} correctas")
 
-    print("\n  Como acabo cada vuelta:")
+    if datos["perdidos"]:
+        print()
+        print(
+            f"  Sin respuesta del proveedor ({len(datos['perdidos'])}): "
+            + ", ".join(datos["perdidos"])
+        )
+        print("  No cuentan ni a favor ni en contra del agente: ahi no llego a")
+        print("  opinar. En produccion acabarian en revision humana igualmente.")
+
+    print()
+    print("  Como acabo cada vuelta:")
     for final, cuantas in sorted(datos["finales"].items()):
         print(f"    {final:20} {cuantas}")
 
     if datos["desacuerdos"]:
-        print("\n  Donde el agente no decidio lo esperado:")
+        print()
+        print("  Donde el agente no decidio lo esperado:")
         for caso_id, esperado, obtenido, dijo, motivo in datos["desacuerdos"]:
-            print(f"\n    {caso_id}")
+            print()
+            print(f"    {caso_id}")
             print(f"      esperado {esperado}, decidio {obtenido}")
             print(f"      el agente dijo: {dijo[:200]}")
             print(f"      por que se espera otra cosa: {motivo[:250]}")
 
     if datos["interrumpida"]:
-        print(
-            "\n  AVISO: la tanda se corto por falta de cupo. Los numeros de arriba\n"
-            "  son de los casos que si se midieron y no son comparables con una\n"
-            "  tanda completa."
-        )
+        print()
+        print("  La tanda se corto por falta de cupo antes de acabar.")
 
 
 def main() -> int:
@@ -198,7 +251,7 @@ def main() -> int:
         api_key=settings.gemini_api_key,
         model=args.modelo,
         cache=ResponseCache(),
-        # Regla 2: en una tanda no se reintenta.
+        # Regla 2 de las que dejo el incidente: en una tanda no se reintenta.
         #
         # Fuera de una tanda, reintentar un 503 es razonable.  Dentro, el
         # reintento se paga con el cupo que necesitan los casos que aun no
@@ -209,7 +262,7 @@ def main() -> int:
         #
         # Lo que se pierde es poco: un caso que se cae queda sin medir, y
         # como las respuestas buenas se guardan en cache, repetir la tanda
-        # manana solo paga por los que faltan.
+        # manana solo paga por las que falten.
         max_retries=0,
     )
 
@@ -218,52 +271,52 @@ def main() -> int:
     peor_caso = coste_maximo(faltantes, modelo)
     disponibles = modelo.budget.remaining(args.modelo)
 
-    print("\n" + "=" * ANCHO)
+    print()
+    print("=" * ANCHO)
     print(f"PLAN ({split}, modelo {args.modelo})")
     print("=" * ANCHO)
-    print(f"  casos                {len(casos)}")
-    print(f"  ya en cache          {len(casos) - len(faltantes)} (no gastan nada)")
+    print(f"  casos                 {len(casos)}")
+    print(f"  ya en cache           {len(casos) - len(faltantes)} (no gastan nada)")
     print(f"  peticiones necesarias {len(faltantes)}")
     print(
-        f"  peor caso            {peor_caso} "
+        f"  peor caso             {peor_caso} "
         f"(con {modelo.max_retries} reintentos; un 503 tambien gasta cupo)"
     )
     print(
-        f"  cupo restante hoy    "
-        f"{'sin tope' if disponibles is None else disponibles}"
+        "  cupo restante hoy     "
+        + ("sin tope" if disponibles is None else str(disponibles))
     )
 
-    if disponibles is not None and len(faltantes) > disponibles:
+    if disponibles is not None and peor_caso > disponibles:
+        print()
         print(
-            f"\n  No alcanza: hacen falta {len(faltantes)} peticiones y quedan "
-            f"{disponibles}.\n"
-            "  No se empieza. Una tanda a medias no da una medida parcial, da unos\n"
-            "  casos medidos y otros escalados por falta de cupo, y ese numero no\n"
-            "  significa nada aunque lo parezca.\n"
-            "\n  Faltan por pedir: " + ", ".join(c.id for c in faltantes[:12])
+            f"  No alcanza: en el peor caso hacen falta {peor_caso} peticiones y "
+            f"quedan {disponibles}."
         )
-        print(
-            "\n  Opciones: esperar al reinicio diario del cupo, o repetir con\n"
-            "  --modelo OTRO, porque el cupo se cuenta por modelo dentro del\n"
-            "  proyecto de Google. Cambiar de modelo cambia el sistema medido y\n"
-            "  hay que decirlo al publicar el numero."
-        )
+        print("  No se empieza. Una tanda a medias no da una medida parcial, da unos")
+        print("  casos medidos y otros sin medir, y ese numero no significa nada")
+        print("  aunque lo parezca.")
+        print()
+        print("  Faltan por pedir: " + ", ".join(c.id for c in faltantes[:12]))
+        print()
+        print("  Opciones: esperar al reinicio del cupo (medianoche del Pacifico), o")
+        print("  repetir con --modelo OTRO, porque el cupo se cuenta por modelo")
+        print("  dentro del proyecto de Google. Cambiar de modelo cambia el sistema")
+        print("  medido y hay que decirlo al publicar el numero.")
         return 1
 
     datos = evaluar(casos, senales, modelo)
     informar(datos, split, args.modelo)
 
-    print(
-        f"\n  Muestra: {datos['total']} casos sinteticos de una sola identidad, con la\n"
-        "  decision correcta anotada a mano. Sirve para comparar al agente con la\n"
-        "  linea base sobre el mismo material, no para prever que hara con\n"
-        "  documentos reales."
-    )
+    print()
+    print(f"  Muestra: {datos['total']} casos sinteticos de una sola identidad, con la")
+    print("  decision correcta anotada a mano. Sirve para comparar al agente con la")
+    print("  linea base sobre el mismo material, no para prever que hara con")
+    print("  documentos reales.")
     if split == CALIBRATION:
-        print(
-            "\n  Esto es calibracion: es donde se ajusta el prompt. El numero que se\n"
-            "  publica es el del reservado, y solo se mide una vez."
-        )
+        print()
+        print("  Esto es calibracion: es donde se ajusta el prompt. El numero que se")
+        print("  publica es el del reservado, y solo se mide una vez.")
     return 0
 
 
