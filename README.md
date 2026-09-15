@@ -246,8 +246,28 @@ Con una salvedad que hay que leer pegada a ese `38/38`: **la fidelidad mide
 que no mienta, no que lo cuente todo.** El auditor recorre las citas que el
 agente hizo; no puede ver las que calló. Un agente que aprueba citando con
 toda exactitud que la MRZ es legible, y omitiendo que el apellido no
-coincide, saca fidelidad perfecta. Falta medir la **completitud**, que es
-calculable y no está hecha. Ver [ADR-0002](docs/adr/0002-explicacion-auditable.md).
+coincide, saca fidelidad perfecta.
+
+Por eso hay una segunda medida, la **completitud**: si la explicación
+menciona todas las señales que jugaban en contra. No juzga la decisión —
+citar una señal adversa y aun así aprobar es legítimo y es justo lo que se
+quiere poder leer después— sino el silencio. Las condiciones adversas son
+adversas *por construcción del dominio* y no por un umbral elegido a ojo:
+dos copias del mismo dato que no coinciden, unos dígitos de control que no
+cuadran, un documento vencido o con fechas que se contradicen, una MRZ
+ilegible.
+
+La definición se eligió **midiendo antes**. La primera versión iba a contar
+la omisión solo al aprobar; contar las condiciones sobre los 12 casos la
+descartó, porque ninguno de los casos que deben aprobarse tiene una sola
+señal adversa y esa versión se habría cumplido sola en los 12 sin medir
+nada. La misma cuenta despejó la duda contraria: ningún caso tiene más de
+una adversa —seis tienen una y seis ninguna—, así que exigir que se citen
+todas no es pedante y deja **seis casos donde de verdad se puede fallar**.
+
+**Todavía no hay cifra de completitud**: la medición de arriba es anterior
+a esta métrica, y volver a medirla cuesta otra tanda de 12 peticiones. Sale
+en la próxima. Ver [ADR-0002](docs/adr/0002-explicacion-auditable.md).
 
 Los 4 fallos no están repartidos al azar. **Tres de los cuatro son el mismo
 comportamiento: escalar en vez de comprometerse** — dos `reject` y un
