@@ -25,6 +25,11 @@ from app.agent.gemini import GeminiClient
 from app.agent.runner import run_agent
 from app.config import settings
 from app.db import engine
+from app.api.schemas import (
+    ResumenAuditoria,
+    VerificacionCreada,
+    VerificacionRegistrada,
+)
 from app.storage import verifications as almacen
 
 router = APIRouter(tags=["verificaciones"])
@@ -133,6 +138,7 @@ def _abrir(fichero: UploadFile, contenido: bytes, campo: str) -> Image.Image:
     "/verificaciones",
     status_code=status.HTTP_201_CREATED,
     summary="Verifica una cedula y registra la decision",
+    response_model=VerificacionCreada,
 )
 async def crear_verificacion(
     anverso: UploadFile = File(..., description="Foto del anverso de la cedula"),
@@ -196,6 +202,7 @@ async def crear_verificacion(
 @router.get(
     "/verificaciones/{verificacion_id}",
     summary="El registro completo de una verificacion",
+    response_model=VerificacionRegistrada,
 )
 def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
     """Devuelve tambien las senales medidas, no solo la decision.
@@ -209,6 +216,20 @@ def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"no hay ninguna verificacion con id {verificacion_id}",
         )
+
+    # El veredicto de una cita se llama `auditoria` en toda la API.
+    #
+    # En la base de datos la columna es `estado_auditoria`, y durante un
+    # tiempo esa diferencia se colo hasta fuera: el POST devolvia
+    # `auditoria` y este GET devolvia `estado_auditoria`, el mismo concepto
+    # con dos nombres segun la ruta. Nadie lo noto hasta que se publicaron
+    # los modelos de respuesta. Se traduce aqui, que es donde vive el
+    # contrato publico, en vez de renombrar la columna: el nombre de la
+    # tabla es asunto del almacen.
+    registro["fundamentos"] = [
+        {**fundamento, "auditoria": fundamento.pop("estado_auditoria")}
+        for fundamento in registro["fundamentos"]
+    ]
     return registro
 
 
@@ -216,6 +237,7 @@ def leer_verificacion(verificacion_id: uuid.UUID) -> dict:
     "/auditoria/resumen",
     summary="Cuentas de todas las verificaciones registradas",
     tags=["auditoria"],
+    response_model=ResumenAuditoria,
 )
 def resumen_de_auditoria() -> dict:
     """Responde la pregunta que docs/adr/0004 deja planteada.

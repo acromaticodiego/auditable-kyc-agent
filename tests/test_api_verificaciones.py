@@ -567,3 +567,44 @@ def test_las_senales_adversas_se_marcan_aunque_el_agente_no_contestara(
     assert adversas == ["cross.surnames"]
     # Nada consta como callado: no hubo explicacion que pudiera callarlo.
     assert omitidas == []
+
+
+def test_el_veredicto_de_una_cita_se_llama_igual_en_las_dos_rutas(tmp_path, creadas):
+    """El mismo concepto no puede tener dos nombres segun la ruta.
+
+    Lo tuvo: el POST devolvia 'auditoria' y el GET 'estado_auditoria',
+    porque el segundo salia directo de la columna de la tabla. Nadie lo noto
+    hasta que se publicaron los modelos de respuesta, que es tarde: quien se
+    hubiera integrado con las dos rutas ya habria escrito el parche.
+    """
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    creado = subir(cliente).json()
+    creadas.append(uuid.UUID(creado["id"]))
+
+    registro = cliente.get(f"/verificaciones/{creado['id']}").json()
+
+    assert creado["fundamentos"][0]["auditoria"] == "valid"
+    assert registro["fundamentos"][0]["auditoria"] == "valid"
+    assert "estado_auditoria" not in registro["fundamentos"][0]
+
+
+def test_el_contrato_publicado_nombra_las_cuatro_decisiones(tmp_path):
+    """Quien abra /docs tiene que ver que puede responder este sistema.
+
+    Antes las tres rutas devolvian un `dict` y el esquema publicado era
+    'object con cualquier propiedad', que no dice nada. Este test recorre
+    DecisionKind para que una decision nueva en el dominio no se quede sin
+    aparecer en el contrato.
+    """
+    from app.domain.decision import DecisionKind
+
+    cliente = api(cliente_falso(tmp_path, json.dumps(RESPUESTA_APROBACION)))
+    esquemas = cliente.get("/openapi.json").json()["components"]["schemas"]
+
+    assert set(esquemas["DecisionKind"]["enum"]) == {
+        decision.value for decision in DecisionKind
+    }
+    assert (
+        esquemas["VerificacionCreada"]["properties"]["decision"]["$ref"]
+        == "#/components/schemas/DecisionKind"
+    )
