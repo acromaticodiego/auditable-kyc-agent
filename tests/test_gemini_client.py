@@ -669,3 +669,28 @@ def test_la_espera_por_minuto_tiene_tope(tmp_path):
     cliente.generate_json("un prompt", SCHEMA)
 
     assert esperas == [MAX_ESPERA_POR_MINUTO]
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        '{"error": "quota"}',
+        '{"error": {"details": "no es una lista"}}',
+        '{"error": {"details": ["no es un objeto"]}}',
+        '{"error": {"details": [{"violations": "tampoco"}]}}',
+        "[]",
+        "null",
+    ],
+)
+def test_un_429_con_el_cuerpo_raro_no_revienta(tmp_path, cuerpo):
+    """Un cuerpo inesperado no puede lanzar una excepcion nueva.
+
+    Basto un `{"error": "quota"}` para que el parseo reventara con un
+    AttributeError, y ocurria dentro del manejo de OTRO error: el sitio
+    donde menos falta hace. Se trata como diario, que es lo prudente.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text=cuerpo)
+
+    with pytest.raises(QuotaExhausted):
+        build_client(tmp_path, handler, max_retries=1).generate_json("x", SCHEMA)

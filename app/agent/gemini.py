@@ -61,12 +61,25 @@ def _quota_por_minuto(body: str) -> tuple[bool, float]:
     except (json.JSONDecodeError, TypeError):
         return False, 0.0
 
-    detalles = datos.get("error", {}).get("details") or []
+    # Un 429 puede traer un cuerpo con la forma que le de la gana, y se ve:
+    # basto un `{"error": "quota"}` para que esto reventara con un
+    # AttributeError en mitad del manejo de otro error, que es el sitio
+    # donde menos falta hace una excepcion nueva. Lo destapo un test.
+    if not isinstance(datos, dict) or not isinstance(datos.get("error"), dict):
+        return False, 0.0
+
+    detalles = datos["error"].get("details") or []
+    if not isinstance(detalles, list):
+        return False, 0.0
     por_minuto = False
     espera = 0.0
 
     for detalle in detalles:
+        if not isinstance(detalle, dict):
+            continue
         for violacion in detalle.get("violations") or []:
+            if not isinstance(violacion, dict):
+                continue
             if "perminute" in str(violacion.get("quotaId", "")).lower():
                 por_minuto = True
         retraso = detalle.get("retryDelay")
