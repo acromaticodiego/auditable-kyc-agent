@@ -694,3 +694,62 @@ def test_un_429_con_el_cuerpo_raro_no_revienta(tmp_path, cuerpo):
 
     with pytest.raises(QuotaExhausted):
         build_client(tmp_path, handler, max_retries=1).generate_json("x", SCHEMA)
+
+
+def test_una_tanda_sin_reintentos_sigue_esperando_al_cupo_por_minuto(tmp_path):
+    """El caso que importa, y el que fallaba.
+
+    Las tandas ponen max_retries=0 para que un 503 no cueste el doble de
+    cupo. Con la espera por minuto colgada de ese mismo contador, una tanda
+    se moria ante un limite que se arreglaba esperando unos segundos. Y el
+    conjunto reservado son catorce peticiones seguidas que solo se pueden
+    gastar una vez.
+    """
+    esperas: list[float] = []
+    respuestas = [
+        httpx.Response(429, text=cuerpo_429(POR_MINUTO, "20s")),
+        httpx.Response(200, json=ok_body()),
+    ]
+    cliente = build_client(tmp_path, lambda r: respuestas.pop(0), max_retries=0)
+    cliente._sleep = esperas.append
+
+    respuesta = cliente.generate_json("un prompt", SCHEMA)
+
+    assert respuesta.text == '{"a": "b"}'
+    assert esperas == [20.0]
+
+
+def test_un_503_sigue_sin_reintentarse_cuando_la_tanda_lo_prohibe(tmp_path):
+    """La otra mitad: separar los contadores no puede aflojar el de 5xx.
+
+    Un 503 reintentado SI gasta cupo, que es justo lo que max_retries=0
+    evita. Si la separacion hubiera dejado pasar tambien los 5xx, una tanda
+    volveria a costar el doble sin que nadie lo notara.
+    """
+    intentos = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        intentos.append(request)
+        return httpx.Response(503, text="sobrecargado")
+
+    with pytest.raises(GeminiError):
+        build_client(tmp_path, handler, max_retries=0).generate_json("x", SCHEMA)
+
+    assert len(intentos) == 1
+
+
+def test_las_esperas_por_minuto_estan_acotadas(tmp_path):
+    """Sin tope, una API que devolviera 429 en bucle colgaria la tanda."""
+    esperas: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text=cuerpo_429(POR_MINUTO, "5s"))
+
+    cliente = build_client(tmp_path, handler, max_retries=0)
+    cliente.max_per_minute_waits = 2
+    cliente._sleep = esperas.append
+
+    with pytest.raises(QuotaExhausted, match="POR MINUTO"):
+        cliente.generate_json("x", SCHEMA)
+
+    assert esperas == [5.0, 5.0]

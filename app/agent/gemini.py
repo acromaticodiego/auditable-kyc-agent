@@ -120,6 +120,19 @@ class GeminiClient:
         # de httpcore en vez de como un error con sentido.
         timeout: float = 180.0,
         max_retries: int = 1,
+        # Esperas por el cupo POR MINUTO, con su propio contador.
+        #
+        # No comparte cuenta con `max_retries` y el motivo es que las dos
+        # situaciones cuestan cosas distintas: un 5xx reintentado SI gasta
+        # cupo, y por eso una tanda pone max_retries=0.  Un 429 por minuto
+        # NO lo gasta, porque la peticion ni se proceso, y ademas vuelve
+        # solo en segundos.
+        #
+        # Colgarlas del mismo contador tuvo una consecuencia concreta: una
+        # tanda con max_retries=0 se moria ante un limite por minuto que
+        # se arreglaba esperando. Con catorce peticiones seguidas sobre un
+        # conjunto que solo se puede medir una vez, eso no es aceptable.
+        max_per_minute_waits: int = 3,
         backoff_seconds: float = 2.0,
         budget: RequestBudget | None = None,
         http_client: httpx.Client | None = None,
@@ -134,6 +147,7 @@ class GeminiClient:
         self.cache = cache or ResponseCache()
         self.timeout = timeout
         self.max_retries = max_retries
+        self.max_per_minute_waits = max_per_minute_waits
         self.backoff_seconds = backoff_seconds
         self.budget = budget or RequestBudget(account=account_fingerprint(api_key))
         # Inyectables para poder probar el manejo de errores de la API
@@ -192,8 +206,15 @@ class GeminiClient:
     def _post_with_retry(self, request: dict) -> httpx.Response:
         url = f"{API_ROOT}/{self.model}:generateContent"
         last_error: GeminiError | None = None
+        esperas_por_minuto = 0
 
-        for attempt in range(self.max_retries + 1):
+        # El bucle no puede ir sobre `max_retries` a secas: una espera por
+        # cupo del minuto no es un reintento de los que ese numero acota.
+        attempt = -1
+        while True:
+            attempt += 1
+            if attempt > self.max_retries + esperas_por_minuto:
+                break
             # El intento se anota antes de lanzarlo: un 503 o un corte por
             # tiempo gastan cupo igual que una respuesta buena, asi que
             # contarlos solo al acertar volveria a dejar la cuenta ciega.
@@ -244,7 +265,8 @@ class GeminiClient:
                     # El cupo por minuto vuelve solo; el diario no. Esperar
                     # por el primero salva la tanda, esperar por el segundo
                     # solo gasta tiempo.
-                    if por_minuto and attempt < self.max_retries:
+                    if por_minuto and esperas_por_minuto < self.max_per_minute_waits:
+                        esperas_por_minuto += 1
                         self._sleep(min(pedido or 60.0, MAX_ESPERA_POR_MINUTO))
                         last_error = GeminiError(
                             "cupo por minuto agotado; se reintento tras esperar"
