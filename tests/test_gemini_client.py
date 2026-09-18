@@ -19,6 +19,7 @@ from app.agent.budget import (
 )
 from app.agent.cache import ResponseCache
 from app.agent.gemini import (
+    MAX_ESPERA_POR_MINUTO,
     GeminiClient,
     GeminiError,
     QuotaExhausted,
@@ -573,3 +574,98 @@ def test_ningun_fallo_de_transporte_se_escapa_como_excepcion_de_httpx(
     # Sale como error propio y no como excepcion de la libreria de red.
     assert not isinstance(capturado.value, httpx.HTTPError)
     assert fragmento in str(capturado.value)
+
+
+def cuerpo_429(quota_id: str, retraso: str = "30s") -> str:
+    """Un 429 con la forma real que devuelve Gemini."""
+    return json.dumps(
+        {
+            "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                        "violations": [{"quotaId": quota_id}],
+                    },
+                    {
+                        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                        "retryDelay": retraso,
+                    },
+                ],
+            }
+        }
+    )
+
+
+DIARIO = "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+POR_MINUTO = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+
+
+def test_el_429_del_minuto_se_reintenta_tras_esperar(tmp_path):
+    """El cupo por minuto vuelve solo; parar la tanda por el es tirarla.
+
+    Es la razon por la que este cliente habla REST en vez de usar el SDK, y
+    durante un tiempo fue una razon sin cumplir: el codigo trataba los dos
+    429 igual.
+    """
+    esperas: list[float] = []
+    respuestas = [
+        httpx.Response(429, text=cuerpo_429(POR_MINUTO, "12s")),
+        httpx.Response(200, json=ok_body()),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return respuestas.pop(0)
+
+    cliente = build_client(tmp_path, handler, max_retries=1)
+    cliente._sleep = esperas.append
+
+    respuesta = cliente.generate_json("un prompt", SCHEMA)
+
+    assert respuesta.text == '{"a": "b"}'
+    assert esperas == [12.0], "deberia haber esperado lo que pidio la API"
+
+
+def test_el_429_del_dia_no_se_reintenta(tmp_path):
+    """Esperar por el cupo diario no lo trae de vuelta, solo gasta tiempo."""
+    intentos = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        intentos.append(request)
+        return httpx.Response(429, text=cuerpo_429(DIARIO))
+
+    cliente = build_client(tmp_path, handler, max_retries=1)
+
+    with pytest.raises(QuotaExhausted):
+        cliente.generate_json("un prompt", SCHEMA)
+
+    assert len(intentos) == 1, "el cupo diario no debe reintentarse"
+
+
+def test_un_429_ilegible_se_trata_como_diario(tmp_path):
+    """La suposicion prudente: esperar por un cupo diario no lo devuelve.
+
+    Si el cuerpo no se deja leer y se supusiera 'por minuto', una tanda se
+    quedaria esperando en bucle contra un cupo que no vuelve hasta manana.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="esto no es json")
+
+    with pytest.raises(QuotaExhausted):
+        build_client(tmp_path, handler, max_retries=1).generate_json("x", SCHEMA)
+
+
+def test_la_espera_por_minuto_tiene_tope(tmp_path):
+    """Si la API pidiera diez minutos, trece casos serian mas de dos horas."""
+    esperas: list[float] = []
+    respuestas = [
+        httpx.Response(429, text=cuerpo_429(POR_MINUTO, "600s")),
+        httpx.Response(200, json=ok_body()),
+    ]
+    cliente = build_client(tmp_path, lambda r: respuestas.pop(0), max_retries=1)
+    cliente._sleep = esperas.append
+
+    cliente.generate_json("un prompt", SCHEMA)
+
+    assert esperas == [MAX_ESPERA_POR_MINUTO]

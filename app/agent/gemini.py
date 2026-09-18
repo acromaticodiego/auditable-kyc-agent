@@ -36,8 +36,51 @@ class GeminiError(RuntimeError):
     pass
 
 
+# Cuanto se espera como maximo a que vuelva el cupo por minuto.  El cuerpo
+# del 429 trae un `retryDelay` propio y se respeta, pero con un tope: si la
+# API pidiera esperar diez minutos, una tanda de trece casos se quedaria
+# colgada mas de dos horas y es mejor que falle y se repita.
+MAX_ESPERA_POR_MINUTO = 75.0
+
+
+def _quota_por_minuto(body: str) -> tuple[bool, float]:
+    """Distingue el 429 del minuto del 429 del dia, y cuanto pide esperar.
+
+    Es la razon por la que este cliente habla REST en vez de usar el SDK, y
+    durante un tiempo fue una razon sin cumplir: el codigo trataba los dos
+    429 igual y paraba la tanda entera cuando lo unico agotado era el
+    minuto, que vuelve solo.
+
+    Google los distingue en `details[].violations[].quotaId`: el diario dice
+    `...PerDayPerProjectPerModel`, el del minuto dice `PerMinute`.  Si el
+    cuerpo no se deja leer se devuelve "no es por minuto", que es la
+    suposicion prudente: esperar por un cupo diario no lo trae de vuelta.
+    """
+    try:
+        datos = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return False, 0.0
+
+    detalles = datos.get("error", {}).get("details") or []
+    por_minuto = False
+    espera = 0.0
+
+    for detalle in detalles:
+        for violacion in detalle.get("violations") or []:
+            if "perminute" in str(violacion.get("quotaId", "")).lower():
+                por_minuto = True
+        retraso = detalle.get("retryDelay")
+        if isinstance(retraso, str) and retraso.endswith("s"):
+            try:
+                espera = float(retraso[:-1])
+            except ValueError:
+                espera = 0.0
+
+    return por_minuto, espera
+
+
 class QuotaExhausted(GeminiError):
-    """El cupo diario o por minuto se agoto.
+    """El cupo diario se agoto.
 
     Se distingue del resto de errores porque la reaccion es distinta: no se
     reintenta, se para la tanda.  Insistir sobre un 429 de cupo diario solo
@@ -184,6 +227,22 @@ class GeminiClient:
                 last_error.__cause__ = error
             else:
                 if response.status_code == 429:
+                    por_minuto, pedido = _quota_por_minuto(response.text)
+                    # El cupo por minuto vuelve solo; el diario no. Esperar
+                    # por el primero salva la tanda, esperar por el segundo
+                    # solo gasta tiempo.
+                    if por_minuto and attempt < self.max_retries:
+                        self._sleep(min(pedido or 60.0, MAX_ESPERA_POR_MINUTO))
+                        last_error = GeminiError(
+                            "cupo por minuto agotado; se reintento tras esperar"
+                        )
+                        continue
+                    if por_minuto:
+                        raise QuotaExhausted(
+                            "cupo POR MINUTO agotado y sin reintentos "
+                            f"disponibles. Vuelve solo en unos segundos: "
+                            f"{response.text[:300]}"
+                        )
                     raise QuotaExhausted(response.text)
                 if response.status_code in RETRYABLE_STATUS:
                     last_error = GeminiError(
