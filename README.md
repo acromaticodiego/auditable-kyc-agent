@@ -365,6 +365,49 @@ porque el primero se quedó sin cupo; como el 8/12 ya estaba invalidado, no
 había comparación que romper, pero el 12/13 va con el nombre del modelo al
 lado.
 
+### Suplantación — 4 casos con caras reales
+
+Conjunto **aparte** del catálogo de 27, porque las fotos reales no están en
+el repositorio y no pueden estarlo: si estos casos vivieran en el catálogo,
+la suite dejaría de pasar en cualquier máquina que no las tenga. El catálogo
+mide verificación de **documento** sobre material sintético y publicable;
+esto mide verificación de **identidad** sobre material real que no se
+publica.
+
+| caso | similitud | esperado | agente |
+|---|---|---|---|
+| legítimo, su titular | +0,807 | approve | **approve** ✓ |
+| suplantación | +0,024 | reject | **reject** ✓ |
+| suplantación | +0,019 | reject | **reject** ✓ |
+| suplantación | +0,010 | reject | **reject** ✓ |
+
+| | |
+|---|---|
+| **Agente** | **4/4** |
+| Línea base de reglas fijas | **1/4** |
+| Explicaciones fieles | 4/4 |
+
+La línea base no mira la cara, así que **aprueba las tres suplantaciones**.
+No es un espantapájaros: es exactamente el resultado de no tener la señal, y
+es lo que justifica añadirla. La suplantación es el único fraude del
+proyecto que **ninguna otra señal puede ver** — documento auténtico, dígitos
+de control cuadrando, los seis cotejos coincidiendo, fechas coherentes, en
+manos de otra persona.
+
+**Esto pone a prueba la [ADR-0005](docs/adr/0005-la-similitud-facial-va-sin-umbral.md),
+no a ArcFace.** El reconocedor ya estaba medido. Lo que estaba en duda era si
+el agente sabría usar un número **sin umbral**: la señal llega cruda y su
+descripción le da las dos referencias medidas —los impostores no pasan de
+0,26, el único par genuino dio 0,79—. Nadie le dice «por debajo de 0,4
+rechaza». Rechazó los tres, citando la similitud como motivo. La decisión de
+dejar el corte fuera del pipeline se sostiene.
+
+Advertencias: el lado legítimo depende de **una sola persona**, así que
+acertarlo o fallarlo no dice casi nada; lo que este conjunto mide con alguna
+solidez es el lado de la suplantación, y son tres casos. Todos comparten la
+misma identidad de documento, de modo que lo único que cambia entre el
+legítimo y los impostores es la cara de la selfie.
+
 Con una salvedad que hay que leer pegada a ese `38/38`: **la fidelidad mide
 que no mienta, no que lo cuente todo.** El auditor recorre las citas que el
 agente hizo; no puede ver las que calló. Un agente que aprueba citando con
