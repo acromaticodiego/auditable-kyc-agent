@@ -214,6 +214,28 @@ def _coverage_signal(front_fields: FrontFields) -> Signal:
     )
 
 
+# Campos del cotejo que la aritmetica de la MRZ ampara, y los que no.
+#
+# Verificado sobre el calculo del compuesto en app/signals/mrz.py, cuyo
+# payload es upper[5:30] + middle[0:7] + middle[8:15] + middle[18:29].  El
+# numero de documento, las dos fechas y el NUIP -- que viaja en los datos
+# opcionales de la linea del medio -- entran ahi.  Quedan fuera el sexo
+# (middle[7]), la nacionalidad y la linea entera de nombres.
+#
+# Esta distincion no es un tecnicismo: cambia cuanto vale un 'mismatch'.
+# Sobre un campo amparado, que los digitos cuadren significa que la
+# aritmetica respalda el valor de la MRZ y nada respalda el del anverso.
+# Sobre un campo sin amparo no hay nada que arbitre entre las dos lecturas,
+# asi que la discrepancia es igual de compatible con una manipulacion que
+# con un fallo del OCR en cualquiera de los dos lados.
+#
+# El agente no puede deducirlo del valor 'mismatch' a secas, asi que se le
+# dice en la descripcion de cada senal. Ver docs/adr/0003.
+CROSS_COVERED_BY_CHECK_DIGIT = frozenset(
+    {"nuip", "birth_date", "expiry_date"}
+)
+
+
 def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signal]:
     signals: list[Signal] = []
     for result in cross_check(front_fields, mrz):
@@ -222,6 +244,22 @@ def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signa
             f"Impreso en el anverso: {result.front_value!r}. "
             f"En la MRZ: {result.mrz_value!r}."
         )
+        if result.field in CROSS_COVERED_BY_CHECK_DIGIT:
+            amparo = (
+                "Este campo SI entra en los digitos de control de la MRZ, asi "
+                "que si los digitos cuadran la aritmetica respalda el valor de "
+                "la MRZ y nada respalda el del anverso: un 'mismatch' aqui es "
+                "evidencia dura de que el anverso se retoco. "
+            )
+        else:
+            amparo = (
+                "Este campo NO entra en ningun digito de control de la MRZ "
+                "-- es el punto ciego del formato TD1 --, asi que no hay "
+                "aritmetica que arbitre entre las dos lecturas. Un 'mismatch' "
+                "aqui es compatible con una manipulacion y tambien con un "
+                "fallo del OCR en cualquiera de los dos lados, y la confianza "
+                "de la lectura es lo unico que ayuda a distinguirlos. "
+            )
         signals.append(
             Signal(
                 f"cross.{result.field}",
@@ -229,9 +267,7 @@ def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signa
                 f"Cotejo del {etiqueta} entre el anverso y la MRZ. "
                 f"'match' si coinciden, 'mismatch' si se contradicen, y "
                 f"'*_missing' si una de las dos copias no se pudo leer. "
-                f"Un 'mismatch' puede ser manipulacion del documento o un "
-                f"fallo del OCR: hay que mirar la confianza de la lectura. "
-                f"{detalle}",
+                f"{amparo}{detalle}",
                 value=result.status.value,
             )
         )
