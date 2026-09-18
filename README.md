@@ -12,13 +12,11 @@ con fundamentos que citan la señal concreta que los sostiene.
 > registrada. Están medidos el OCR, la MRZ, la señal facial y una línea
 > base de reglas fijas.
 >
-> **Lo que todavía no tiene número es el agente.** La única medición que
-> existe se hizo con una versión anterior del prompt y quedó invalidada al
-> descubrir que el contrato de decisión estaba tumbando respuestas
-> correctas y que el informe contaba como aciertos del agente las
-> coincidencias del fallback. Las dos cosas están corregidas y la medición
-> se repite; hasta entonces, aquí no hay cifra de acierto del agente y no
-> se pone ninguna.
+> Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
+> línea base de reglas fijas, con **48 de 48 citas verificadas** y ninguna
+> señal adversa callada. Ese número es de calibración y no es el que se
+> publica: **el conjunto reservado sigue sin tocarse**, y esa medición se
+> hace una sola vez.
 
 ## La idea
 
@@ -290,33 +288,82 @@ La señal se entrega al agente **cruda, sin umbral**. Decir a partir de qué
 valor dos caras son la misma persona es una decisión, y el pipeline mide;
 meter el corte dentro de la medición escondería la decisión.
 
-### El agente frente a la línea base — 12 casos de calibración
+### El agente frente a la línea base — 13 casos de calibración
 
-> **Medida sobre el catálogo de 25 casos**, cuando la mitad de calibración
-> tenía 12. El catálogo creció después a 27 y esa mitad es hoy de 13, así
-> que estas cifras no son comparables con las de la tabla de la línea base
-> de más arriba. Se dejan como estaban en vez de recalcularlas: una medida
-> es de la fecha en que se tomó, y reescribirla para que cuadre con el
-> conjunto de hoy sería inventar una medición que nadie hizo.
-
-Primera medición completa del agente sobre el conjunto de **calibración**,
-con `gemini-3.1-flash-lite`, los 12 casos contestados. **No es el número
-que se publica**: la calibración es donde se ajusta el prompt, y el corte
-que vale es el reservado, que sigue sin tocarse.
+Medición sobre el conjunto de **calibración** con `gemini-3.5-flash`, los 13
+casos contestados. **No es el número que se publica**: la calibración es
+donde se ajusta el prompt, y el corte que vale es el reservado, que sigue
+sin tocarse.
 
 | | |
 |---|---|
-| Agente | **8/12** |
-| Línea base de reglas fijas, **los mismos 12 casos** | **9/12** |
-| Explicaciones fieles | **12/12** |
-| Citas verificadas una a una | **38/38 correctas** |
+| **Agente** | **12/13** |
+| Línea base de reglas fijas, **los mismos 13 casos** | 10/13 |
+| Explicaciones fieles | **13/13** |
+| Explicaciones completas | **13/13** |
+| Citas verificadas una a una | **48/48 correctas** |
+| Vueltas que acabaron en decisión | 13/13 |
 
-**Un `if/else` le gana al agente.** Y el 9/12 de la línea base todavía está
-inflado, porque sus umbrales se eligieron mirando estos mismos casos.
+El agente le saca dos casos a la línea base, con **cero citas falsas y cero
+señales adversas calladas**. De esos 13, siete tenían alguna señal adversa
+que citar, así que la completitud perfecta no sale de un conjunto fácil.
 
-Lo que el agente sí hace impecable es lo que este proyecto dice que
-importa: 38 citas, ninguna inventada, ningún valor mal atribuido. La
-explicación se sostiene aunque la decisión no siempre acierte.
+#### La predicción, escrita antes de medir
+
+El prompt se corrigió a partir de una medición anterior, y la predicción de
+qué debía cambiar quedó escrita en `app/agent/prompt.py` **antes de gastar
+la primera petición**, junto con lo que la falsaría: *si aciertan menos de 3
+de estos 4, la explicación estaba equivocada y hay que buscar otra en vez de
+seguir retocando frases.*
+
+| caso | predicho | resultado |
+|---|---|---|
+| `fraude-fecha-nacimiento-retocada` | `reject` | reject ✓ |
+| `fraude-mrz-retocada-expiracion` | `reject` | reject ✓ |
+| `captura-dedo-sobre-la-fecha` | `request_resubmission` | request_resubmission ✓ |
+| `ambiguo-menor-de-edad` | `escalate_to_human` | escalate_to_human ✓ |
+
+**4 de 4.** El diagnóstico era correcto: el sesgo a escalar venía de la
+palabra «contradictoria» en el propio menú de decisiones del prompt, que
+mandaba escalar exactamente en los casos donde había que comprometerse.
+
+El caso escrito para que el arreglo pudiera **salir mal** —
+`elegibilidad-recien-mayor-de-edad`, donde escalar sería el error— se aprueba.
+No hay sobre-escalada.
+
+#### El único fallo
+
+`ambiguo-apellido-difiere-una-letra`: se esperaba `escalate_to_human` y el
+agente **rechazó**. El apellido baila una letra (`WALTEROS`/`WALTEROZ`) y
+todo lo demás cuadra: puede ser manipulación torpe, fallo del OCR o
+transliteración del propio documento.
+
+Es discutible, y en la dirección incómoda para quien escribió las etiquetas:
+el agente aplicó *«una contradicción no es motivo para escalar, decide»*,
+que es literalmente lo que el prompt le dice. O la etiqueta está mal, o al
+prompt le falta distinguir una contradicción de un carácter de una de un
+campo entero. **Queda sin resolver a propósito**: tocar el prompt ahora
+exigiría volver a medir, y decidirlo mirando el reservado invalidaría la
+medición final.
+
+#### Qué invalidó la medición anterior
+
+La primera medición dio 8/12 y la línea base le ganaba. Ese número **no se
+mantiene**, y no porque el resultado incomodara, sino porque dos fallos del
+arnés lo hacían no significar nada:
+
+- el **contrato de decisión tumbaba respuestas correctas**. El agente acertó
+  el caso del menor de edad y el validador tiró la respuesta, porque el
+  prompt nunca explicaba respecto a qué se mide el peso de un fundamento;
+- el informe **contaba como aciertos del agente las coincidencias del
+  fallback**: cuando el proveedor fallaba, el sistema escalaba, y si el caso
+  esperaba escalar eso sumaba como si el agente hubiera razonado.
+
+Los dos están corregidos y la medición se repitió entera. Se cambió también
+de modelo —de `gemini-3.1-flash-lite` a `gemini-3.5-flash`, el configurado—
+porque el primero se quedó sin cupo; como el 8/12 ya estaba invalidado, no
+había comparación que romper, pero el 12/13 va con el nombre del modelo al
+lado.
 
 Con una salvedad que hay que leer pegada a ese `38/38`: **la fidelidad mide
 que no mienta, no que lo cuente todo.** El auditor recorre las citas que el
@@ -341,8 +388,10 @@ nada. La misma cuenta despejó la duda contraria: ningún caso tiene más de
 una adversa —seis tienen una y seis ninguna—, así que exigir que se citen
 todas no es pedante y deja **seis casos donde de verdad se puede fallar**.
 
-**Del agente todavía no hay cifra de completitud**: la medición de arriba es
-anterior a esta métrica y volver a medirla cuesta otra tanda de 13
+La completitud del agente sale **13/13** en la medición de arriba. La de la
+línea base es 11/13: un árbol de reglas cita solo la regla que disparó, así
+que se calla las demás señales adversas. Ver más abajo el coste de una tanda
+de 13
 peticiones. De la línea base sí la hay, porque no gasta nada:
 
 > **Línea base: 11/13 en completitud**, sobre 7 casos que tenían alguna
