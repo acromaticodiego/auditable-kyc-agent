@@ -365,6 +365,54 @@ porque el primero se quedó sin cupo; como el 8/12 ya estaba invalidado, no
 había comparación que romper, pero el 12/13 va con el nombre del modelo al
 lado.
 
+### El mismo prompt, dos modelos, decisiones distintas
+
+Todo este README mide «el agente» como si fuera una cosa, y no lo es: el
+prompt es mío, pero la decisión la toma un modelo concreto. Midiendo los dos
+con **el mismo prompt y las mismas señales**, discrepan justo donde el caso
+es difícil:
+
+| caso | esperado | `3.5-flash` | `3.1-flash-lite` |
+|---|---|---|---|
+| `ambiguo-apellido-difiere-una-letra` | escalar | **rechaza** ✗ | **escala** ✓ |
+| `elegibilidad-recien-mayor-de-edad` | aprobar | **aprueba** ✓ | **escala** ✗ |
+| `ambiguo-menor-de-edad` | escalar | escala ✓ | escala ✓ |
+| `fraude-mrz-retocada-expiracion` | rechazar | rechaza ✓ | rechaza ✓ |
+| `captura-resolucion-muy-baja` | reenvío | reenvío ✓ | reenvío ✓ |
+| `legitimo-reflejo-en-zona-vacia` | aprobar | aprueba ✓ | aprueba ✓ |
+| `legitimo-torcido` | aprobar | aprueba ✓ | aprueba ✓ |
+
+De los siete casos que ambos contestaron, **discrepan en dos, y los dos son
+ambiguos**. En los claros coinciden siempre.
+
+Eso obliga a leer cualquier cifra de acierto de otra manera: **parte de ella
+es del prompt y parte del modelo que se eligió**, y este proyecto no puede
+separarlas con el tamaño de muestra que tiene. Por eso todos los números van
+con el nombre del modelo al lado.
+
+Dos lecturas concretas:
+
+**El desacuerdo del apellido no era del prompt.** Se le dedicó media sesión
+a discutir si la etiqueta estaba mal, y se le añadió al agente el hecho de
+qué campos ampara la aritmética de la MRZ. Con ese mismo prompt, `lite`
+**escala**, que es lo que dice la etiqueta. La etiqueta estaba bien;
+`3.5-flash` es sencillamente más tajante.
+
+**El caso trampa hizo su trabajo.** `elegibilidad-recien-mayor-de-edad` se
+escribió para que la corrección del sesgo a escalar pudiera **salir mal de
+forma visible**. En `3.5-flash` aprueba y el riesgo parecía descartado. En
+`lite` escala: el riesgo era real, solo que dependía del modelo. Un conjunto
+de evaluación sin ese caso habría dado el arreglo por bueno.
+
+La comparación se reconstruye de la caché sin gastar peticiones:
+
+```powershell
+docker compose exec api python scripts/compare_models.py
+```
+
+Un caso que un modelo nunca contestó sale como hueco y no como acuerdo:
+suponer que habría coincidido sería inventarse media comparación.
+
 ### Suplantación — 4 casos con caras reales
 
 Conjunto **aparte** del catálogo de 27, porque las fotos reales no están en

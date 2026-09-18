@@ -36,8 +36,64 @@ class GeminiError(RuntimeError):
     pass
 
 
+# Cuanto se espera como maximo a que vuelva el cupo por minuto.  El cuerpo
+# del 429 trae un `retryDelay` propio y se respeta, pero con un tope: si la
+# API pidiera esperar diez minutos, una tanda de trece casos se quedaria
+# colgada mas de dos horas y es mejor que falle y se repita.
+MAX_ESPERA_POR_MINUTO = 75.0
+
+
+def _quota_por_minuto(body: str) -> tuple[bool, float]:
+    """Distingue el 429 del minuto del 429 del dia, y cuanto pide esperar.
+
+    Es la razon por la que este cliente habla REST en vez de usar el SDK, y
+    durante un tiempo fue una razon sin cumplir: el codigo trataba los dos
+    429 igual y paraba la tanda entera cuando lo unico agotado era el
+    minuto, que vuelve solo.
+
+    Google los distingue en `details[].violations[].quotaId`: el diario dice
+    `...PerDayPerProjectPerModel`, el del minuto dice `PerMinute`.  Si el
+    cuerpo no se deja leer se devuelve "no es por minuto", que es la
+    suposicion prudente: esperar por un cupo diario no lo trae de vuelta.
+    """
+    try:
+        datos = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return False, 0.0
+
+    # Un 429 puede traer un cuerpo con la forma que le de la gana, y se ve:
+    # basto un `{"error": "quota"}` para que esto reventara con un
+    # AttributeError en mitad del manejo de otro error, que es el sitio
+    # donde menos falta hace una excepcion nueva. Lo destapo un test.
+    if not isinstance(datos, dict) or not isinstance(datos.get("error"), dict):
+        return False, 0.0
+
+    detalles = datos["error"].get("details") or []
+    if not isinstance(detalles, list):
+        return False, 0.0
+    por_minuto = False
+    espera = 0.0
+
+    for detalle in detalles:
+        if not isinstance(detalle, dict):
+            continue
+        for violacion in detalle.get("violations") or []:
+            if not isinstance(violacion, dict):
+                continue
+            if "perminute" in str(violacion.get("quotaId", "")).lower():
+                por_minuto = True
+        retraso = detalle.get("retryDelay")
+        if isinstance(retraso, str) and retraso.endswith("s"):
+            try:
+                espera = float(retraso[:-1])
+            except ValueError:
+                espera = 0.0
+
+    return por_minuto, espera
+
+
 class QuotaExhausted(GeminiError):
-    """El cupo diario o por minuto se agoto.
+    """El cupo diario se agoto.
 
     Se distingue del resto de errores porque la reaccion es distinta: no se
     reintenta, se para la tanda.  Insistir sobre un 429 de cupo diario solo
@@ -64,6 +120,19 @@ class GeminiClient:
         # de httpcore en vez de como un error con sentido.
         timeout: float = 180.0,
         max_retries: int = 1,
+        # Esperas por el cupo POR MINUTO, con su propio contador.
+        #
+        # No comparte cuenta con `max_retries` y el motivo es que las dos
+        # situaciones cuestan cosas distintas: un 5xx reintentado SI gasta
+        # cupo, y por eso una tanda pone max_retries=0.  Un 429 por minuto
+        # NO lo gasta, porque la peticion ni se proceso, y ademas vuelve
+        # solo en segundos.
+        #
+        # Colgarlas del mismo contador tuvo una consecuencia concreta: una
+        # tanda con max_retries=0 se moria ante un limite por minuto que
+        # se arreglaba esperando. Con catorce peticiones seguidas sobre un
+        # conjunto que solo se puede medir una vez, eso no es aceptable.
+        max_per_minute_waits: int = 3,
         backoff_seconds: float = 2.0,
         budget: RequestBudget | None = None,
         http_client: httpx.Client | None = None,
@@ -78,6 +147,7 @@ class GeminiClient:
         self.cache = cache or ResponseCache()
         self.timeout = timeout
         self.max_retries = max_retries
+        self.max_per_minute_waits = max_per_minute_waits
         self.backoff_seconds = backoff_seconds
         self.budget = budget or RequestBudget(account=account_fingerprint(api_key))
         # Inyectables para poder probar el manejo de errores de la API
@@ -136,8 +206,15 @@ class GeminiClient:
     def _post_with_retry(self, request: dict) -> httpx.Response:
         url = f"{API_ROOT}/{self.model}:generateContent"
         last_error: GeminiError | None = None
+        esperas_por_minuto = 0
 
-        for attempt in range(self.max_retries + 1):
+        # El bucle no puede ir sobre `max_retries` a secas: una espera por
+        # cupo del minuto no es un reintento de los que ese numero acota.
+        attempt = -1
+        while True:
+            attempt += 1
+            if attempt > self.max_retries + esperas_por_minuto:
+                break
             # El intento se anota antes de lanzarlo: un 503 o un corte por
             # tiempo gastan cupo igual que una respuesta buena, asi que
             # contarlos solo al acertar volveria a dejar la cuenta ciega.
@@ -184,6 +261,23 @@ class GeminiClient:
                 last_error.__cause__ = error
             else:
                 if response.status_code == 429:
+                    por_minuto, pedido = _quota_por_minuto(response.text)
+                    # El cupo por minuto vuelve solo; el diario no. Esperar
+                    # por el primero salva la tanda, esperar por el segundo
+                    # solo gasta tiempo.
+                    if por_minuto and esperas_por_minuto < self.max_per_minute_waits:
+                        esperas_por_minuto += 1
+                        self._sleep(min(pedido or 60.0, MAX_ESPERA_POR_MINUTO))
+                        last_error = GeminiError(
+                            "cupo por minuto agotado; se reintento tras esperar"
+                        )
+                        continue
+                    if por_minuto:
+                        raise QuotaExhausted(
+                            "cupo POR MINUTO agotado y sin reintentos "
+                            f"disponibles. Vuelve solo en unos segundos: "
+                            f"{response.text[:300]}"
+                        )
                     raise QuotaExhausted(response.text)
                 if response.status_code in RETRYABLE_STATUS:
                     last_error = GeminiError(
