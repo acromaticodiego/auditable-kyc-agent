@@ -534,3 +534,42 @@ def test_la_propia_clave_no_se_cuenta_como_ajena(tmp_path):
 
     assert mia.spent("gemini-test") == 5
     assert mia.spent_by_other_keys("gemini-test") == 0
+
+
+@pytest.mark.parametrize(
+    "fallo, fragmento",
+    [
+        (httpx.RemoteProtocolError("corto la respuesta"), "RemoteProtocolError"),
+        (httpx.ReadError("se rompio la lectura"), "ReadError"),
+        (httpx.WriteError("se rompio la escritura"), "WriteError"),
+        # PoolTimeout hereda de TimeoutException, asi que lo recoge la rama
+        # del corte por tiempo y su mensaje es el de un timeout. Es correcto
+        # y se deja en el barrido para que quede fijado: lo que importa no
+        # es que rama lo atienda sino que ninguna lo deje escapar.
+        (httpx.PoolTimeout("no habia conexiones libres"), "no respondio"),
+    ],
+)
+def test_ningun_fallo_de_transporte_se_escapa_como_excepcion_de_httpx(
+    tmp_path, fallo, fragmento
+):
+    """Una tanda no puede morir porque un caso falle, y casi muere.
+
+    Solo se capturaban ConnectError y TimeoutException. Un
+    RemoteProtocolError se escapo hasta arriba y mato una tanda de trece
+    casos en el octavo: las respuestas anteriores se salvaron por la cache,
+    pero el informe no llego a existir y el cupo ya estaba gastado.
+
+    La promesa de `run_agent` de devolver los fallos como resultado en vez
+    de lanzarlos dependia de que el cliente tradujera TODOS los fallos de
+    httpx, asi que aqui se barren varias familias en vez de la que dio
+    guerra.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise fallo
+
+    with pytest.raises(GeminiError) as capturado:
+        build_client(tmp_path, handler, max_retries=0).generate_json("hola", SCHEMA)
+
+    # Sale como error propio y no como excepcion de la libreria de red.
+    assert not isinstance(capturado.value, httpx.HTTPError)
+    assert fragmento in str(capturado.value)

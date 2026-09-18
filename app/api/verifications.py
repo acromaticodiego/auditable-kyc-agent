@@ -143,6 +143,14 @@ def _abrir(fichero: UploadFile, contenido: bytes, campo: str) -> Image.Image:
 async def crear_verificacion(
     anverso: UploadFile = File(..., description="Foto del anverso de la cedula"),
     reverso: UploadFile = File(..., description="Foto del reverso, con la MRZ"),
+    # La selfie es opcional y no por comodidad: sin ella el sistema sigue
+    # pudiendo verificar el documento, y decirlo asi es mas honesto que
+    # exigirla y fingir que sin ella no se puede hacer nada. Cuando falta,
+    # `facial.similarity` sale no disponible con ese motivo y el agente
+    # decide sabiendo que no ha visto ninguna cara.
+    selfie: UploadFile | None = File(
+        None, description="Selfie de la persona. Opcional."
+    ),
     modelo: GeminiClient = Depends(get_agent_client),
 ) -> dict:
     bytes_anverso = await _leer_acotado(anverso, "anverso")
@@ -151,12 +159,22 @@ async def crear_verificacion(
     imagen_anverso = _abrir(anverso, bytes_anverso, "anverso")
     imagen_reverso = _abrir(reverso, bytes_reverso, "reverso")
 
+    imagen_selfie = None
+    bytes_selfie = None
+    # Un fichero vacio llega como un UploadFile con nombre vacio cuando el
+    # cliente manda el campo sin contenido. Tratarlo como una imagen rota
+    # daria un 422 confuso a quien simplemente no queria mandar selfie.
+    if selfie is not None and selfie.filename:
+        bytes_selfie = await _leer_acotado(selfie, "selfie")
+        if bytes_selfie:
+            imagen_selfie = _abrir(selfie, bytes_selfie, "selfie")
+
     # Importado aqui y no arriba a proposito: `build_signals` arrastra OCR y
     # numpy, y ponerlo en la cabecera del modulo hace que el arranque de la
     # API cargue Tesseract aunque nadie vaya a verificar nada.
     from app.signals.pipeline import build_signals
 
-    senales = build_signals(imagen_anverso, imagen_reverso)
+    senales = build_signals(imagen_anverso, imagen_reverso, selfie=imagen_selfie)
     run = run_agent(senales, modelo)
 
     guardada = almacen.guardar(
@@ -164,6 +182,9 @@ async def crear_verificacion(
         run,
         anverso_sha256=almacen.hash_imagen(bytes_anverso),
         reverso_sha256=almacen.hash_imagen(bytes_reverso),
+        selfie_sha256=(
+            almacen.hash_imagen(bytes_selfie) if bytes_selfie else None
+        ),
     )
 
     return {

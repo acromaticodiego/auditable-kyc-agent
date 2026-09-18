@@ -138,6 +138,10 @@ class VerificacionRegistrada(BaseModel):
         )
     )
     reverso_sha256: str
+    selfie_sha256: str | None = Field(
+        default=None,
+        description="Nulo si no se aporto selfie, que es un caso legitimo.",
+    )
     citas_validas: int
     citas_totales: int
     explicacion_fiel: bool

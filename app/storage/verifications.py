@@ -42,6 +42,7 @@ def guardar(
     *,
     anverso_sha256: str,
     reverso_sha256: str,
+    selfie_sha256: str | None = None,
 ) -> VerificacionGuardada:
     verificacion_id = uuid.uuid4()
 
@@ -119,6 +120,7 @@ def guardar(
         "desde_cache": run.from_cache,
         "anverso_sha256": anverso_sha256,
         "reverso_sha256": reverso_sha256,
+        "selfie_sha256": selfie_sha256,
         "citas_validas": sum(
             1 for fila in filas_fundamentos
             if fila["estado_auditoria"] == CitationStatus.VALID.value

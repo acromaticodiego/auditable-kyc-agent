@@ -61,6 +61,9 @@ verificaciones = sa.Table(
     sa.Column("desde_cache", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("anverso_sha256", sa.Text, nullable=False),
     sa.Column("reverso_sha256", sa.Text, nullable=False),
+    # Nula cuando no se aporto selfie, que es un caso legitimo y no un
+    # hueco: el sistema puede verificar el documento sin ella.
+    sa.Column("selfie_sha256", sa.Text, nullable=True),
     # El resultado de la auditoria, resumido, para no tener que recorrer los
     # fundamentos cada vez que alguien pregunta cuantas decisiones tenian
     # todas sus citas correctas.

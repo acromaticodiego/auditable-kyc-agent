@@ -88,6 +88,15 @@ def evaluar(
     (ver docs/adr/0004).  Para medir al agente son cosas distintas.
     """
     aciertos = 0
+    # Casos donde la decision del sistema coincide con la esperada pero NO
+    # la tomo el agente: rompio el contrato y lo que coincidio fue el
+    # fallback a revision humana.
+    #
+    # Se cuentan aparte porque contarlos como aciertos premia al agente por
+    # una coincidencia. Paso de verdad: en un caso cuya decision correcta
+    # era escalar, el modelo devolvio una respuesta invalida, el sistema
+    # escalo por defecto y el informe lo apunto como acierto del agente.
+    coincidencias = 0
     fieles = 0
     completas = 0
     # Cuantos casos tenian de verdad algo que omitir. Sin este numero, la
@@ -144,8 +153,11 @@ def evaluar(
 
         contestados += 1
         base_en_contestados += base_ok
-        agente_ok = run.effective_decision is caso.expected_decision
+        coincide = run.effective_decision is caso.expected_decision
+        decidio = run.outcome is RunOutcome.DECIDED
+        agente_ok = coincide and decidio
         aciertos += agente_ok
+        coincidencias += coincide and not decidio
         fieles += run.faithful
         completas += run.complete
         if run.completeness is not None and run.completeness.adverse:
@@ -159,7 +171,7 @@ def evaluar(
             + caso.expected_decision.value.ljust(22)
             + run.effective_decision.value.ljust(22)
             + marca_base.ljust(6)
-            + ("ok" if agente_ok else "XX")
+            + ("ok" if agente_ok else ("~~" if coincide else "XX"))
         )
 
         if not agente_ok:
@@ -180,6 +192,7 @@ def evaluar(
         "aciertos": aciertos,
         "fieles": fieles,
         "citas": (citas_validas, citas_totales),
+        "coincidencias": coincidencias,
         "completas": completas,
         "con_algo_que_omitir": con_algo_que_omitir,
         "base_aciertos": base_aciertos,
@@ -222,6 +235,16 @@ def informar(datos: dict, split: str, modelo: str) -> None:
     # conjunto entero compara denominadores distintos sobre casos distintos.
     print(f"  Sobre los {contestados} casos que el agente contesto:")
     print(f"    agente             {datos['aciertos']}/{contestados} aciertos")
+    if datos["coincidencias"]:
+        print(
+            f"      (+{datos['coincidencias']} donde el sistema acerto pero el "
+            "agente no decidio:"
+        )
+        print(
+            "       rompio el contrato y coincidio el fallback. No cuentan "
+            "como acierto suyo,"
+        )
+        print("       y en la tabla salen marcados ~~ en vez de ok)")
     print(f"    linea base         {datos['base_en_contestados']}/{contestados} aciertos")
     print(f"    explicaciones fieles     {datos['fieles']}/{contestados}")
     print(f"    explicaciones completas  {datos['completas']}/{contestados}")

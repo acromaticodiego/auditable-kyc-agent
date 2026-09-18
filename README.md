@@ -5,12 +5,18 @@ Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
 con fundamentos que citan la señal concreta que los sostiene.
 
-> **Estado: en construcción.** Funcionan el contrato de decisión, la
-> verificación de citas, el cliente del modelo con caché y presupuesto, la
-> lectura de la MRZ, el generador de cédulas sintéticas y un catálogo de
-> 27 casos etiquetados, el extractor completo (OCR del anverso, MRZ del
-> reverso y cotejo entre ambos) y una línea base de reglas fijas ya medida.
-> Falta el agente, el reconocimiento facial y el endpoint de verificación.
+> **Estado: en construcción.** El sistema funciona de punta a punta —
+> `POST /verificaciones` toma las dos caras del documento y una selfie,
+> mide 28 señales deterministas, el agente decide citando las que le
+> pesaron y cada cita se contrasta contra el valor real antes de quedar
+> registrada. Están medidos el OCR, la MRZ, la señal facial y una línea
+> base de reglas fijas.
+>
+> Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
+> línea base de reglas fijas, con **48 de 48 citas verificadas** y ninguna
+> señal adversa callada. Ese número es de calibración y no es el que se
+> publica: **el conjunto reservado sigue sin tocarse**, y esa medición se
+> hace una sola vez.
 
 ## La idea
 
@@ -40,6 +46,19 @@ del anfitrión (5432 y 5433 ya los ocupa otro proyecto de esta maquina).
 Invoke-RestMethod http://localhost:8000/health
 docker compose exec api pytest -q
 ```
+
+Un recorrido de cuatro actos por lo que hace el sistema, pensado para
+enseñarlo en una pantalla compartida:
+
+```powershell
+docker compose exec api python scripts/demo.py
+```
+
+**Tres de los cuatro actos no tocan la API**, y es deliberado: una demo que
+depende de una llamada en vivo se puede caer delante de quien la está
+viendo. Los dos que de verdad convencen —que el sistema caza una
+manipulación y que caza una suplantación— son deterministas. `--sin-api`
+lo ejecuta sin pedir nada al modelo.
 
 Ensayar la tanda de evaluación entera **sin gastar una sola petición**, para
 comprobar que el arnés funciona antes de quemar el cupo del día:
@@ -81,6 +100,9 @@ lo que se descartó y por qué.
 - [ADR-0004](docs/adr/0004-que-hace-el-sistema-cuando-el-agente-no-contesta.md)
   — por qué un agente que no contesta escala a un humano en vez de aprobar
   o rechazar, y cuánto cuesta esa elección.
+- [ADR-0005](docs/adr/0005-la-similitud-facial-va-sin-umbral.md) — por qué
+  la similitud facial se entrega cruda y el umbral no vive en el pipeline,
+  y por qué el documento y la selfie se leen con criterios distintos.
 
 ## Métricas
 
@@ -266,33 +288,125 @@ La señal se entrega al agente **cruda, sin umbral**. Decir a partir de qué
 valor dos caras son la misma persona es una decisión, y el pipeline mide;
 meter el corte dentro de la medición escondería la decisión.
 
-### El agente frente a la línea base — 12 casos de calibración
+### El agente frente a la línea base — 13 casos de calibración
 
-> **Medida sobre el catálogo de 25 casos**, cuando la mitad de calibración
-> tenía 12. El catálogo creció después a 27 y esa mitad es hoy de 13, así
-> que estas cifras no son comparables con las de la tabla de la línea base
-> de más arriba. Se dejan como estaban en vez de recalcularlas: una medida
-> es de la fecha en que se tomó, y reescribirla para que cuadre con el
-> conjunto de hoy sería inventar una medición que nadie hizo.
-
-Primera medición completa del agente sobre el conjunto de **calibración**,
-con `gemini-3.1-flash-lite`, los 12 casos contestados. **No es el número
-que se publica**: la calibración es donde se ajusta el prompt, y el corte
-que vale es el reservado, que sigue sin tocarse.
+Medición sobre el conjunto de **calibración** con `gemini-3.5-flash`, los 13
+casos contestados. **No es el número que se publica**: la calibración es
+donde se ajusta el prompt, y el corte que vale es el reservado, que sigue
+sin tocarse.
 
 | | |
 |---|---|
-| Agente | **8/12** |
-| Línea base de reglas fijas, **los mismos 12 casos** | **9/12** |
-| Explicaciones fieles | **12/12** |
-| Citas verificadas una a una | **38/38 correctas** |
+| **Agente** | **12/13** |
+| Línea base de reglas fijas, **los mismos 13 casos** | 10/13 |
+| Explicaciones fieles | **13/13** |
+| Explicaciones completas | **13/13** |
+| Citas verificadas una a una | **48/48 correctas** |
+| Vueltas que acabaron en decisión | 13/13 |
 
-**Un `if/else` le gana al agente.** Y el 9/12 de la línea base todavía está
-inflado, porque sus umbrales se eligieron mirando estos mismos casos.
+El agente le saca dos casos a la línea base, con **cero citas falsas y cero
+señales adversas calladas**. De esos 13, siete tenían alguna señal adversa
+que citar, así que la completitud perfecta no sale de un conjunto fácil.
 
-Lo que el agente sí hace impecable es lo que este proyecto dice que
-importa: 38 citas, ninguna inventada, ningún valor mal atribuido. La
-explicación se sostiene aunque la decisión no siempre acierte.
+#### La predicción, escrita antes de medir
+
+El prompt se corrigió a partir de una medición anterior, y la predicción de
+qué debía cambiar quedó escrita en `app/agent/prompt.py` **antes de gastar
+la primera petición**, junto con lo que la falsaría: *si aciertan menos de 3
+de estos 4, la explicación estaba equivocada y hay que buscar otra en vez de
+seguir retocando frases.*
+
+| caso | predicho | resultado |
+|---|---|---|
+| `fraude-fecha-nacimiento-retocada` | `reject` | reject ✓ |
+| `fraude-mrz-retocada-expiracion` | `reject` | reject ✓ |
+| `captura-dedo-sobre-la-fecha` | `request_resubmission` | request_resubmission ✓ |
+| `ambiguo-menor-de-edad` | `escalate_to_human` | escalate_to_human ✓ |
+
+**4 de 4.** El diagnóstico era correcto: el sesgo a escalar venía de la
+palabra «contradictoria» en el propio menú de decisiones del prompt, que
+mandaba escalar exactamente en los casos donde había que comprometerse.
+
+El caso escrito para que el arreglo pudiera **salir mal** —
+`elegibilidad-recien-mayor-de-edad`, donde escalar sería el error— se aprueba.
+No hay sobre-escalada.
+
+#### El único fallo
+
+`ambiguo-apellido-difiere-una-letra`: se esperaba `escalate_to_human` y el
+agente **rechazó**. El apellido baila una letra (`WALTEROS`/`WALTEROZ`) y
+todo lo demás cuadra: puede ser manipulación torpe, fallo del OCR o
+transliteración del propio documento.
+
+Es discutible, y en la dirección incómoda para quien escribió las etiquetas:
+el agente aplicó *«una contradicción no es motivo para escalar, decide»*,
+que es literalmente lo que el prompt le dice. O la etiqueta está mal, o al
+prompt le falta distinguir una contradicción de un carácter de una de un
+campo entero. **Queda sin resolver a propósito**: tocar el prompt ahora
+exigiría volver a medir, y decidirlo mirando el reservado invalidaría la
+medición final.
+
+#### Qué invalidó la medición anterior
+
+La primera medición dio 8/12 y la línea base le ganaba. Ese número **no se
+mantiene**, y no porque el resultado incomodara, sino porque dos fallos del
+arnés lo hacían no significar nada:
+
+- el **contrato de decisión tumbaba respuestas correctas**. El agente acertó
+  el caso del menor de edad y el validador tiró la respuesta, porque el
+  prompt nunca explicaba respecto a qué se mide el peso de un fundamento;
+- el informe **contaba como aciertos del agente las coincidencias del
+  fallback**: cuando el proveedor fallaba, el sistema escalaba, y si el caso
+  esperaba escalar eso sumaba como si el agente hubiera razonado.
+
+Los dos están corregidos y la medición se repitió entera. Se cambió también
+de modelo —de `gemini-3.1-flash-lite` a `gemini-3.5-flash`, el configurado—
+porque el primero se quedó sin cupo; como el 8/12 ya estaba invalidado, no
+había comparación que romper, pero el 12/13 va con el nombre del modelo al
+lado.
+
+### Suplantación — 4 casos con caras reales
+
+Conjunto **aparte** del catálogo de 27, porque las fotos reales no están en
+el repositorio y no pueden estarlo: si estos casos vivieran en el catálogo,
+la suite dejaría de pasar en cualquier máquina que no las tenga. El catálogo
+mide verificación de **documento** sobre material sintético y publicable;
+esto mide verificación de **identidad** sobre material real que no se
+publica.
+
+| caso | similitud | esperado | agente |
+|---|---|---|---|
+| legítimo, su titular | +0,807 | approve | **approve** ✓ |
+| suplantación | +0,024 | reject | **reject** ✓ |
+| suplantación | +0,019 | reject | **reject** ✓ |
+| suplantación | +0,010 | reject | **reject** ✓ |
+
+| | |
+|---|---|
+| **Agente** | **4/4** |
+| Línea base de reglas fijas | **1/4** |
+| Explicaciones fieles | 4/4 |
+
+La línea base no mira la cara, así que **aprueba las tres suplantaciones**.
+No es un espantapájaros: es exactamente el resultado de no tener la señal, y
+es lo que justifica añadirla. La suplantación es el único fraude del
+proyecto que **ninguna otra señal puede ver** — documento auténtico, dígitos
+de control cuadrando, los seis cotejos coincidiendo, fechas coherentes, en
+manos de otra persona.
+
+**Esto pone a prueba la [ADR-0005](docs/adr/0005-la-similitud-facial-va-sin-umbral.md),
+no a ArcFace.** El reconocedor ya estaba medido. Lo que estaba en duda era si
+el agente sabría usar un número **sin umbral**: la señal llega cruda y su
+descripción le da las dos referencias medidas —los impostores no pasan de
+0,26, el único par genuino dio 0,79—. Nadie le dice «por debajo de 0,4
+rechaza». Rechazó los tres, citando la similitud como motivo. La decisión de
+dejar el corte fuera del pipeline se sostiene.
+
+Advertencias: el lado legítimo depende de **una sola persona**, así que
+acertarlo o fallarlo no dice casi nada; lo que este conjunto mide con alguna
+solidez es el lado de la suplantación, y son tres casos. Todos comparten la
+misma identidad de documento, de modo que lo único que cambia entre el
+legítimo y los impostores es la cara de la selfie.
 
 Con una salvedad que hay que leer pegada a ese `38/38`: **la fidelidad mide
 que no mienta, no que lo cuente todo.** El auditor recorre las citas que el
@@ -317,8 +431,10 @@ nada. La misma cuenta despejó la duda contraria: ningún caso tiene más de
 una adversa —seis tienen una y seis ninguna—, así que exigir que se citen
 todas no es pedante y deja **seis casos donde de verdad se puede fallar**.
 
-**Del agente todavía no hay cifra de completitud**: la medición de arriba es
-anterior a esta métrica y volver a medirla cuesta otra tanda de 13
+La completitud del agente sale **13/13** en la medición de arriba. La de la
+línea base es 11/13: un árbol de reglas cita solo la regla que disparó, así
+que se calla las demás señales adversas. Ver más abajo el coste de una tanda
+de 13
 peticiones. De la línea base sí la hay, porque no gasta nada:
 
 > **Línea base: 11/13 en completitud**, sobre 7 casos que tenían alguna

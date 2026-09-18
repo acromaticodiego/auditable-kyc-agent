@@ -15,7 +15,7 @@ sabe usar tres, y no falla por ningun lado.
 import pytest
 
 from app.agent.prompt import INSTRUCTIONS, build_prompt, render_signals
-from app.domain.decision import DecisionKind
+from app.domain.decision import DecisionKind, Weight
 from app.domain.signals import UNAVAILABLE_MARKER, Signal, SignalKind, SignalSet
 
 
@@ -113,3 +113,33 @@ def test_el_prompt_abre_sitio_a_lo_que_no_es_identidad():
 
     assert "no esta en posicion de resolver" in instrucciones
     assert "no son la misma pregunta" in instrucciones
+
+
+def test_el_prompt_explica_respecto_a_que_se_mide_el_peso():
+    """Sin esto, el contrato tumbaba decisiones correctas.
+
+    En la primera tanda con el menu reescrito, el agente acerto el caso del
+    menor de edad -- documento autentico, titular menor, revision humana --
+    y fundamento el escalado con la edad marcada como `in_favor`, porque
+    tener 16 anos es un hecho normal de un documento valido. El validador
+    exige un fundamento en contra o no concluyente para no aprobar, asi que
+    tiro la respuesta entera y la solicitud acabo escalada por fallback, sin
+    que el razonamiento llegara a nadie.
+
+    El fallo era del prompt: explicaba que citar y que se verifica, pero no
+    respecto a que se mide el peso.
+    """
+    instrucciones = sin_saltos(INSTRUCTIONS)
+
+    assert "respecto a aprobar" in instrucciones
+    assert "no respecto a si el documento esta bien" in instrucciones
+
+
+@pytest.mark.parametrize("peso", list(Weight))
+def test_el_prompt_explica_cada_peso_posible(peso):
+    """Los tres valores tienen que estar explicados, no solo nombrados.
+
+    El esquema de respuesta ya obliga al modelo a elegir uno de los tres; lo
+    que el prompt aporta es que signifiquen algo.
+    """
+    assert peso.value in sin_saltos(INSTRUCTIONS)

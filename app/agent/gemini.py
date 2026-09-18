@@ -161,6 +161,27 @@ class GeminiClient:
                     f"(intento {attempt + 1} de {self.max_retries + 1})"
                 )
                 last_error.__cause__ = error
+            except httpx.HTTPError as error:
+                # Cualquier otro fallo de transporte: la conexion se corta a
+                # mitad de la respuesta, el servidor habla mal el protocolo,
+                # el DNS se cae.
+                #
+                # Esta rama existe por una tanda que reviento a medias. Solo
+                # se capturaban ConnectError y TimeoutException, y un
+                # RemoteProtocolError se escapo hasta arriba y mato la
+                # ejecucion entera en el caso octavo de trece. Las respuestas
+                # anteriores se salvaron por la cache, pero el informe no
+                # llego a existir.
+                #
+                # Es exactamente lo que `run_agent` promete que no pasa: una
+                # tanda no puede abortar porque un caso falle. La promesa
+                # dependia de que el cliente tradujera TODOS los fallos de
+                # httpx a GeminiError, y no lo hacia.
+                last_error = GeminiError(
+                    f"fallo de transporte contra la API "
+                    f"({type(error).__name__}: {error})"
+                )
+                last_error.__cause__ = error
             else:
                 if response.status_code == 429:
                     raise QuotaExhausted(response.text)

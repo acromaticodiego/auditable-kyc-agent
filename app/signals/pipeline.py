@@ -214,6 +214,28 @@ def _coverage_signal(front_fields: FrontFields) -> Signal:
     )
 
 
+# Campos del cotejo que la aritmetica de la MRZ ampara, y los que no.
+#
+# Verificado sobre el calculo del compuesto en app/signals/mrz.py, cuyo
+# payload es upper[5:30] + middle[0:7] + middle[8:15] + middle[18:29].  El
+# numero de documento, las dos fechas y el NUIP -- que viaja en los datos
+# opcionales de la linea del medio -- entran ahi.  Quedan fuera el sexo
+# (middle[7]), la nacionalidad y la linea entera de nombres.
+#
+# Esta distincion no es un tecnicismo: cambia cuanto vale un 'mismatch'.
+# Sobre un campo amparado, que los digitos cuadren significa que la
+# aritmetica respalda el valor de la MRZ y nada respalda el del anverso.
+# Sobre un campo sin amparo no hay nada que arbitre entre las dos lecturas,
+# asi que la discrepancia es igual de compatible con una manipulacion que
+# con un fallo del OCR en cualquiera de los dos lados.
+#
+# El agente no puede deducirlo del valor 'mismatch' a secas, asi que se le
+# dice en la descripcion de cada senal. Ver docs/adr/0003.
+CROSS_COVERED_BY_CHECK_DIGIT = frozenset(
+    {"nuip", "birth_date", "expiry_date"}
+)
+
+
 def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signal]:
     signals: list[Signal] = []
     for result in cross_check(front_fields, mrz):
@@ -222,6 +244,22 @@ def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signa
             f"Impreso en el anverso: {result.front_value!r}. "
             f"En la MRZ: {result.mrz_value!r}."
         )
+        if result.field in CROSS_COVERED_BY_CHECK_DIGIT:
+            amparo = (
+                "Este campo SI entra en los digitos de control de la MRZ, asi "
+                "que si los digitos cuadran la aritmetica respalda el valor de "
+                "la MRZ y nada respalda el del anverso: un 'mismatch' aqui es "
+                "evidencia dura de que el anverso se retoco. "
+            )
+        else:
+            amparo = (
+                "Este campo NO entra en ningun digito de control de la MRZ "
+                "-- es el punto ciego del formato TD1 --, asi que no hay "
+                "aritmetica que arbitre entre las dos lecturas. Un 'mismatch' "
+                "aqui es compatible con una manipulacion y tambien con un "
+                "fallo del OCR en cualquiera de los dos lados, y la confianza "
+                "de la lectura es lo unico que ayuda a distinguirlos. "
+            )
         signals.append(
             Signal(
                 f"cross.{result.field}",
@@ -229,9 +267,7 @@ def _cross_signals(front_fields: FrontFields, mrz: MrzData | None) -> list[Signa
                 f"Cotejo del {etiqueta} entre el anverso y la MRZ. "
                 f"'match' si coinciden, 'mismatch' si se contradicen, y "
                 f"'*_missing' si una de las dos copias no se pudo leer. "
-                f"Un 'mismatch' puede ser manipulacion del documento o un "
-                f"fallo del OCR: hay que mirar la confianza de la lectura. "
-                f"{detalle}",
+                f"{amparo}{detalle}",
                 value=result.status.value,
             )
         )
@@ -332,7 +368,7 @@ def _document_signals(
 
 
 def _facial_signal(
-    front: Image.Image, selfie: Image.Image | None, reader: "FaceReader | None"
+    front: Image.Image, selfie: Image.Image, reader: "FaceReader | None"
 ) -> Signal:
     """Compara la cara del documento con la de la selfie.
 
@@ -351,14 +387,8 @@ def _facial_signal(
         "Parecido entre la cara impresa en el documento y la de la selfie, "
         "de -1 a 1. Medido con ArcFace sobre embeddings normalizados. Sobre "
         "989 pares de personas distintas ninguno paso de 0.25; el unico par "
-        "de la misma persona disponible dio 0.79. Ver docs/adr/0005."
+        "de la misma persona disponible dio 0.79."
     )
-
-    if selfie is None:
-        return Signal(
-            "facial.similarity", SignalKind.SCORE, descripcion,
-            unavailable_reason="no se aporto ninguna selfie con la solicitud",
-        )
 
     if reader is None:
         from app.signals.face import FaceReader as _FaceReader
@@ -415,7 +445,24 @@ def build_signals(
     signals += _document_signals(front_fields, mrz, today)
 
     expired = is_expired(front_fields, mrz, today)
-    signals.append(_facial_signal(front, selfie, face_reader))
+    # SIN SELFIE NO HAY SENAL FACIAL, ni siquiera como "no disponible".
+    #
+    # La selfie es opcional en esta API: no mandarla es una eleccion
+    # legitima, una verificacion solo del documento, no un hueco. Listar la
+    # senal como no disponible le diria al agente que le falta algo que
+    # nadie penso darle, y le empujaria a pedir un reenvio de una foto que
+    # el solicitante no tenia que enviar.
+    #
+    # Hay ademas un motivo de medicion. Los 27 casos del catalogo no llevan
+    # selfie, y anadirles una senal ausente habria cambiado el prompt de
+    # todos ellos a la vez que se estaba probando otro cambio en el prompt:
+    # si el resultado se moviera, no habria forma de saber cual de los dos
+    # lo movio. Se descubrio comparando el prompt antes y despues.
+    #
+    # El dia que la selfie sea obligatoria, su ausencia SI tiene que
+    # aparecer como senal no disponible y no como silencio.
+    if selfie is not None:
+        signals.append(_facial_signal(front, selfie, face_reader))
 
     signals.append(
         Signal(

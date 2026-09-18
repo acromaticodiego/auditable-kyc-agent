@@ -28,6 +28,29 @@ duda; la zona gris es cuando caben dos lecturas y nada permite elegir.  Y
 anade el caso que no tenia casilla: un documento impecable de alguien cuya
 solicitud no le corresponde resolver a este sistema.
 
+EL PESO DE UN FUNDAMENTO ES RESPECTO A APROBAR, Y HUBO QUE DECIRLO
+------------------------------------------------------------------
+
+La primera tanda con el menu reescrito dejo dos casos en
+`contract_violation`, y los dos por lo mismo.  En `ambiguo-menor-de-edad`
+el modelo razono bien -- "el documento es autentico y los datos son
+coherentes, pero el titular es menor de edad, lo cual requiere una revision
+humana" -- y fundamento su escalado con `document.age_years = 16` marcado
+como `in_favor`.  El validador de `AgentDecision` exige que una decision
+distinta de aprobar tenga al menos un fundamento en contra o no
+concluyente, asi que la respuesta se tiro entera.
+
+El agente acerto el caso y el contrato se lo tumbo.  Y el fallo era del
+prompt: aqui se explicaba que citar, que valor poner y que se verifica,
+pero **nunca que significaban los pesos**.  El modelo eligio el unico
+sentido razonable sin mas informacion -- "tener 16 anos es un hecho normal
+de un documento valido, luego in_favor" -- que es cierto respecto al
+documento y falso respecto a la decision.
+
+Esto aparecio al ampliar el escalado a la elegibilidad: mientras escalar
+solo cubria evidencia contradictoria, siempre habia algo `against` a mano y
+la ambiguedad no se notaba.
+
 PREDICCION, ESCRITA ANTES DE MEDIR
 ----------------------------------
 
@@ -104,6 +127,18 @@ Reglas de la respuesta:
    registrada como fallo.
 5. Cita solo las senales que de verdad pesaron en tu decision. Citarlas
    todas no mejora nada.
+6. El `weight` de cada fundamento se mide **respecto a aprobar**, no
+   respecto a si el documento esta bien. `in_favor` significa "esto apoya
+   aprobar", `against` significa "esto se opone a aprobar" e
+   `inconclusive` significa "esto no deja decidir".
+
+   El caso que confunde: una senal puede ser un dato perfectamente normal
+   de un documento perfectamente valido y aun asi oponerse a aprobar. Si
+   escalas o rechazas, al menos uno de tus fundamentos tiene que ser
+   `against` o `inconclusive`: es el que explica por que no apruebas. Una
+   decision distinta de aprobar cuyos fundamentos sean todos `in_favor` se
+   rechaza por incoherente y la solicitud acaba en revision humana sin que
+   tu razonamiento llegue a nadie.
 """
 
 
