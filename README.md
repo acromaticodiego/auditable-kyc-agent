@@ -13,7 +13,7 @@ con fundamentos que citan la señal concreta que los sostiene.
 > base de reglas fijas.
 >
 > Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
-> línea base de reglas fijas, con **48 de 48 citas verificadas** y ninguna
+> línea base de reglas fijas, con **42 de 42 citas verificadas** y ninguna
 > señal adversa callada. Ese número es de calibración y no es el que se
 > publica: **el conjunto reservado sigue sin tocarse**, y esa medición se
 > hace una sola vez.
@@ -301,12 +301,20 @@ sin tocarse.
 | Línea base de reglas fijas, **los mismos 13 casos** | 10/13 |
 | Explicaciones fieles | **13/13** |
 | Explicaciones completas | **13/13** |
-| Citas verificadas una a una | **48/48 correctas** |
+| Citas verificadas una a una | **42/42 correctas** |
 | Vueltas que acabaron en decisión | 13/13 |
 
 El agente le saca dos casos a la línea base, con **cero citas falsas y cero
 señales adversas calladas**. De esos 13, siete tenían alguna señal adversa
 que citar, así que la completitud perfecta no sale de un conjunto fácil.
+
+Esta tabla se volvió a medir entera después de que el prompt pasara a decir,
+en cada cotejo, si la aritmética de la MRZ ampara ese campo. **Las trece
+decisiones salieron idénticas**, incluido el único fallo. Lo que sí cambió
+fue el número de citas, de 48 a 42: el modelo argumenta más corto cuando se
+le dice de antemano qué campos tienen respaldo aritmético. Merece anotarse
+porque es la clase de cambio que se colaría sin verse si solo se mirara el
+marcador — el acierto no se movió y el comportamiento sí.
 
 #### La predicción, escrita antes de medir
 
