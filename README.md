@@ -278,6 +278,52 @@ y declaraba válido un documento manipulado. Era un corrector encubierto que
 elegía el resultado que le convenía. Ahora el ángulo se estima por
 geometría, sin mirar si valida.
 
+### Una fotografía de verdad — 1 documento, 1 teléfono
+
+**Esto no es una medición y no entra en ninguna tabla.** Es una sola
+captura, hecha una vez, con un teléfono y un folio. Se anota porque
+responde a una pregunta que hasta ahora no tenía respuesta de ningún tipo:
+*¿el canal de lectura funciona fuera de las imágenes sintéticas?*
+
+Todos los números de arriba salen de imágenes generadas por el propio
+proyecto, con degradaciones simuladas. Una fotografía de un papel impreso
+trae gradientes de luz, perspectiva y trama de impresión que esa
+degradación no modela.
+
+Se imprimió una cédula sintética, se fotografió con un móvil y se midió:
+
+| | |
+|---|---|
+| MRZ | legible, los cuatro dígitos de control cuadran |
+| ¿Hubo que reparar algún carácter? | no |
+| Campos del anverso sin leer | 0 |
+| Cotejos anverso ↔ MRZ en `match` | 5 de 6 |
+| `quality.front_sharpness` | 174 |
+| `quality.back_sharpness` | 228 |
+
+**El sistema leyó el documento entero.** Y aun así la línea base de reglas
+fijas decidió `request_resubmission`, porque su umbral de nitidez está en
+300 y las dos caras se quedaron por debajo. Ese umbral se eligió sobre dos
+puntos de datos y está anotado como tal en `app/evaluation/baseline.py`.
+
+Es el caso que mejor resume el argumento del proyecto: **un umbral no sabe
+combinar evidencia**. Aquí hay una MRZ cuya aritmética cuadra, cinco
+cotejos que coinciden y confianzas de OCR entre 0,89 y 0,96, y una regla
+fija lo descarta todo mirando un solo número.
+
+Lo que **no** dice este apartado, y conviene que no se lea entre líneas:
+no dice qué proporción de fotos reales se leen, ni con qué teléfonos, ni
+con qué documentos. Para eso haría falta un banco de fotografías reales
+que este proyecto no tiene. Dice que el canal existe y que el fallo, cuando
+llega, llega por donde estaba previsto: la nitidez y el tamaño de la MRZ.
+
+Dos intentos anteriores fallaron, y el cómo fallaron vale tanto como el
+acierto. Fotografiar la **pantalla de un móvil** con la webcam del portátil
+da un reflejo de 0,88 y una nitidez de 37: cero de tres líneas de MRZ
+reconocidas. Y una foto del reverso con la MRZ pequeña en el encuadre
+falla **aunque la nitidez sea de 306**, por encima del umbral, porque lo
+que le falta no es contraste sino píxeles.
+
 ### La línea base de reglas fijas — y lo que eso significa
 
 Un árbol de decisión sin modelo de lenguaje, con los umbrales elegidos
