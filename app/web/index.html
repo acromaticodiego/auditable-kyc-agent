@@ -193,6 +193,11 @@
   #camara select { font: inherit; font-size: 12px; background: var(--panel-2);
                    color: var(--texto); border: 1px solid var(--borde);
                    border-radius: 6px; padding: 4px 8px; max-width: 260px; }
+  .diagnostico { margin: 8px 0; padding-left: 18px; }
+  .diagnostico li { margin-bottom: 7px; }
+  .diagnostico li div { color: var(--tenue); font-size: 12px; }
+  .diagnostico .val { color: var(--aviso); }
+
   .nota { font-size: 12.5px; color: var(--tenue); max-width: 78ch; margin: 0 0 12px; }
   .nota a { color: var(--acento); }
   .cargando { color: var(--tenue); font-size: 13px; }
@@ -673,6 +678,25 @@ function cierraCamara() {
   if (panel) panel.hidden = true;
 }
 
+/* Cuando una captura sale mal, el motivo tiene que leerse sin saber que es
+   una MRZ ni cuanto es una nitidez razonable. */
+function bloqueDiagnostico(d) {
+  if (!d.diagnostico || !d.diagnostico.length) {
+    return `<div class="base">
+      La captura se leyó entera: nada que reprochar a la foto.
+    </div>`;
+  }
+  const filas = d.diagnostico.map(p => `
+    <li><b>${p.que}</b> <span class="val">${p.dato}</span>
+        <div>${p.arreglo}</div></li>`).join("");
+  return `
+    <div class="base gana">
+      <b>Qué le pasa a esta captura</b>
+      <ul class="diagnostico">${filas}</ul>
+      Medir es gratis: corrige y vuelve a intentarlo las veces que haga falta.
+    </div>`;
+}
+
 async function medir(evento) {
   if (evento) evento.preventDefault();
   cierraCamara();
@@ -701,6 +725,7 @@ async function medir(evento) {
       <div><b>${ETIQUETA[d.linea_base.decision] || d.linea_base.decision}</b>dirían las reglas fijas</div>
       <div><b>${cupo}</b>cupo hoy</div>
     </div>
+    ${bloqueDiagnostico(d)}
     <div class="base">
       Hasta aquí no se ha pedido nada a ningún modelo: lo de arriba lo decide código
       normal. ${d.en_cache

@@ -339,3 +339,71 @@ def test_sin_retrato_no_hay_cotejo_facial_y_se_dice_por_que(api):
     facial = next(s for s in cuerpo["senales"] if s["id"] == "facial.similarity")
     assert facial["disponible"] is False
     assert facial["motivo_no_disponible"]
+
+
+def test_una_captura_limpia_no_tiene_nada_que_reprochar(api, documento):
+    cliente = api()
+
+    cuerpo = _subir(cliente, documento)
+
+    assert cuerpo["diagnostico"] == []
+
+
+def test_una_captura_mala_explica_que_le_pasa_en_castellano(api):
+    """Sin esto hay que leerse las 28 senales para saber que fallo.
+
+    Paso de verdad: se fotografio el documento en la pantalla de un movil,
+    el sistema pidio otra foto -que era lo correcto- y averiguar por que
+    exigio repasar senal por senal. Delante de una camara eso no sirve.
+    """
+    from app.evaluation.catalog import person
+    from app.synthetic.cedula import render_back, render_front
+    from app.synthetic.degradation import blur, glare
+
+    datos = person()
+    anverso = glare(blur(render_front(datos), radius=3.5))
+    reverso = blur(render_back(datos), radius=3.5)
+
+    cliente = api()
+    cuerpo = cliente.post(
+        "/demo/medir",
+        files={
+            "anverso": ("a.png", _png(anverso), "image/png"),
+            "reverso": ("r.png", _png(reverso), "image/png"),
+        },
+    ).json()
+
+    quejas = " ".join(p["que"] for p in cuerpo["diagnostico"])
+    assert "desenfocada" in quejas
+    assert "reflejo" in quejas
+    assert "MRZ" in quejas
+    # Cada queja trae el numero al lado: un diagnostico sin la medicion que
+    # lo sostiene es justo la clase de afirmacion que este proyecto audita.
+    assert all(p["dato"] for p in cuerpo["diagnostico"])
+
+
+def test_el_diagnostico_usa_los_mismos_cortes_que_la_linea_base(api):
+    """Duplicar los umbrales en la pantalla los dejaria separarse en silencio.
+
+    Si alguien moviera `Thresholds.min_sharpness` para que la linea base
+    decidiera distinto, una copia en el codigo de la pantalla seguiria
+    explicando la decision con el umbral viejo, y nadie lo notaria porque
+    las dos cifras se leen en sitios distintos.
+    """
+    from app.evaluation.baseline import Thresholds
+    from app.evaluation.catalog import person
+    from app.synthetic.cedula import render_back, render_front
+    from app.synthetic.degradation import blur
+
+    datos = person()
+    cliente = api()
+    cuerpo = cliente.post(
+        "/demo/medir",
+        files={
+            "anverso": ("a.png", _png(blur(render_front(datos), radius=3.5)), "image/png"),
+            "reverso": ("r.png", _png(blur(render_back(datos), radius=3.5)), "image/png"),
+        },
+    ).json()
+
+    nitidez = next(p for p in cuerpo["diagnostico"] if "desenfocada" in p["que"])
+    assert f"hace falta {Thresholds().min_sharpness}" in nitidez["dato"]

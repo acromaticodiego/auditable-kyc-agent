@@ -56,6 +56,7 @@ from app.agent.runner import RunOutcome, run_agent
 from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.config import settings
 from app.domain.citation_audit import CitationStatus
+from app.evaluation.baseline import Thresholds
 from app.evaluation.baseline import decide as decide_baseline
 from app.evaluation.catalog import TODAY, load_cases, person
 from app.synthetic.cedula import render_back, render_front
@@ -157,6 +158,76 @@ def get_demo_client() -> GeminiClient:
         model=settings.gemini_model,
         cache=ResponseCache(),
     )
+
+
+def _diagnostico(senales) -> list[dict]:
+    """Que le pasa a esta captura, en palabras y con el numero al lado.
+
+    Existe por una prueba real. Se fotografio el documento en la pantalla
+    de un movil, el sistema pidio otra foto -que era lo correcto- y para
+    saber POR QUE hubo que leerse las veintiocho senales una a una. Delante
+    de una camara eso no sirve: quien mira no tiene a nadie que se las lea.
+
+    Los cortes salen de `Thresholds`, los mismos que usa la linea base para
+    decidir. Copiarlos aqui habria dejado dos juegos de umbrales
+    separandose en silencio, y el dia que alguien moviera uno la pantalla
+    seguiria explicando la decision con el otro.
+    """
+    limites = Thresholds()
+    problemas: list[dict] = []
+
+    def valor(clave):
+        senal = senales.get(clave)
+        return senal.value if senal is not None and senal.available else None
+
+    for clave, cara in (("quality.front_sharpness", "anverso"),
+                        ("quality.back_sharpness", "reverso")):
+        nitidez = valor(clave)
+        if nitidez is not None and nitidez < limites.min_sharpness:
+            problemas.append({
+                "que": f"La foto del {cara} esta movida o desenfocada.",
+                "dato": f"nitidez {nitidez}, hace falta {limites.min_sharpness}",
+                "arreglo": "Mas luz y mejor pulso. Una camara de movil enfoca de "
+                           "cerca; la webcam de un portatil tiene foco fijo y no.",
+            })
+
+    reflejo = valor("quality.front_glare")
+    if reflejo is not None and reflejo > limites.max_glare:
+        problemas.append({
+            "que": "Hay un reflejo fuerte sobre el documento.",
+            "dato": f"reflejo {reflejo:.2f}, el limite esta en {limites.max_glare}",
+            "arreglo": "Luz indirecta. Fotografiar la pantalla de un movil es el "
+                       "peor caso: la pantalla espeja. Mejor en papel mate.",
+        })
+
+    ausentes = valor("ocr.fields_missing")
+    if ausentes:
+        problemas.append({
+            "que": f"No se leyeron {ausentes} campos del anverso.",
+            "dato": f"{ausentes} ausentes, se admiten {limites.max_missing_fields}",
+            "arreglo": "Que el documento llene el encuadre y salga derecho.",
+        })
+
+    if valor("mrz.readable") is not True:
+        senal = senales.get("mrz.checks_ok")
+        motivo = senal.unavailable_reason if senal is not None else None
+        problemas.append({
+            "que": "No se pudo leer la MRZ del reverso.",
+            "dato": motivo or "no se reconocieron las tres lineas",
+            "arreglo": "Es lo que mas resolucion pide de todo el documento: son "
+                       "caracteres diminutos. Acercarse hasta que ocupe el ancho "
+                       "del encuadre.",
+        })
+
+    facial = senales.get("facial.similarity")
+    if facial is not None and not facial.available:
+        problemas.append({
+            "que": "No hubo cotejo facial.",
+            "dato": facial.unavailable_reason or "no disponible",
+            "arreglo": "Una sola cara en la selfie, de frente y con luz.",
+        })
+
+    return problemas
 
 
 def _senal_a_json(senal) -> dict:
@@ -434,6 +505,7 @@ async def medir(
         "senales_totales": len(senales),
         "con_selfie": imagen_selfie is not None,
         "linea_base": {"decision": base.decision.value, "resumen": base.summary},
+        "diagnostico": _diagnostico(senales),
         # Lo que la pantalla necesita para no mentir sobre el coste.
         "en_cache": en_cache,
         "cupo_restante": modelo.budget.remaining(modelo.model),
