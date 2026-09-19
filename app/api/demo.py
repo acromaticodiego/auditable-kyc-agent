@@ -57,7 +57,8 @@ from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.config import settings
 from app.domain.citation_audit import CitationStatus
 from app.evaluation.baseline import decide as decide_baseline
-from app.evaluation.catalog import TODAY, load_cases
+from app.evaluation.catalog import TODAY, load_cases, person
+from app.synthetic.cedula import render_back, render_front
 from app.signals.pipeline import build_signals
 
 router = APIRouter(tags=["demo"])
@@ -113,6 +114,19 @@ class Medicion:
 # que antes, asi que es mas corto.
 _MEDICIONES: OrderedDict[str, Medicion] = OrderedDict()
 MAX_MEDICIONES = 12
+
+
+def _png(imagen) -> bytes:
+    """Aqui si va PNG y no JPEG.
+
+    Una cedula fabricada para imprimir y luego fotografiar pasa por el OCR
+    dos veces: la de la pantalla y la de la camara. Meterle perdidas de
+    JPEG antes siquiera de imprimirla seria degradarla gratis justo en los
+    bordes de las letras pequenas, que es de donde vive el OCR.
+    """
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def _vista_previa(imagen) -> bytes:
@@ -493,4 +507,62 @@ def imagen_de_la_medicion(ficha: str, cara: str) -> Response:
     medicion = _MEDICIONES.get(ficha)
     if medicion is None or cara not in medicion.vistas:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="esa vista ya no esta")
-    return Response(content=medicion.vistas[cara], media_type="image/jpeg")
+    datos = medicion.vistas[cara]
+    # Las cedulas fabricadas se guardan en PNG y las vistas previas de un
+    # documento subido en JPEG. Se distingue por la firma del fichero en
+    # vez de apuntarlo aparte: el dato ya esta en los propios bytes.
+    tipo = "image/png" if datos[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+    return Response(content=datos, media_type=tipo)
+
+
+@router.post(
+    "/demo/cedula",
+    summary="Fabrica una cedula sintetica con el retrato que se le pase",
+)
+async def fabricar_cedula(
+    retrato: UploadFile | None = File(None),
+) -> dict:
+    """Existe para que nadie tenga que grabar su documento de identidad real.
+
+    Una demostracion en video se graba una vez y se queda en internet para
+    siempre. Sacar ahi una cedula autentica es regalar el numero, la fecha
+    de nacimiento y la MRZ entera de alguien, y ni este sistema ni ningun
+    otro puede deshacer eso despues.
+
+    Con esto se fabrica un documento de identidad **falso y coherente**
+    -sus digitos de control cuadran, asi que el sistema lo lee entero- con
+    la cara que se quiera encima. Se imprime o se ensena en otra pantalla,
+    se graba con la camara, y el cotejo facial contra la selfie funciona de
+    verdad porque la cara si es la misma. Lo unico inventado es la
+    identidad, que es justo lo que no debe salir en un video.
+
+    Los datos son los mismos de siempre, los del catalogo: LAURA WALTEROS,
+    NUIP 1.234.567.890. Nadie los va a confundir con los de una persona.
+
+    Sin retrato, el hueco lleva el marcador gris de siempre y no hay cotejo
+    facial posible: el detector no encuentra ninguna cara en el documento y
+    `facial.similarity` sale no disponible, diciendo por que.
+    """
+    imagen = None
+    if retrato is not None and retrato.filename:
+        contenido = await _leer_acotado(retrato, "retrato")
+        if contenido:
+            imagen = _abrir(retrato, contenido, "retrato")
+
+    datos = person()
+    anverso = render_front(datos, portrait=imagen)
+    reverso = render_back(datos)
+
+    vistas = {
+        "anverso": _png(anverso),
+        "reverso": _png(reverso),
+    }
+    ficha = _recordar(build_signals(anverso, reverso), vistas)
+    return {
+        "ficha": ficha,
+        "con_retrato": imagen is not None,
+        "identidad": f"{datos.given_names} {datos.surnames}, NUIP {datos.nuip}",
+        "imagenes": {
+            cara: f"/demo/mediciones/{ficha}/imagen/{cara}" for cara in vistas
+        },
+    }

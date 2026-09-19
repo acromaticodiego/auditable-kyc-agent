@@ -257,3 +257,85 @@ def test_la_vista_previa_de_una_medicion_que_ya_no_esta_da_404(api):
     respuesta = cliente.get("/demo/mediciones/noexiste/imagen/anverso")
 
     assert respuesta.status_code == 404
+
+
+def test_se_puede_fabricar_una_cedula_para_no_grabar_la_real(api):
+    """Un video se queda en internet para siempre.
+
+    Sacar ahi un documento autentico regala el NUIP, la fecha de
+    nacimiento y la MRZ entera de alguien, y eso no se deshace despues.
+    El sistema fabrica uno falso y coherente para poder grabarlo.
+    """
+    cliente = api()
+
+    respuesta = cliente.post("/demo/cedula")
+
+    assert respuesta.status_code == 200
+    d = respuesta.json()
+    assert d["con_retrato"] is False
+    assert "WALTEROS" in d["identidad"]
+    assert set(d["imagenes"]) == {"anverso", "reverso"}
+
+
+def test_la_cedula_fabricada_se_sirve_en_png_y_no_en_jpeg(api):
+    """Va a pasar por el OCR dos veces: la pantalla y luego la camara.
+
+    Meterle perdidas de JPEG antes siquiera de imprimirla seria degradarla
+    gratis justo en los bordes de las letras pequenas, que es de donde
+    vive el OCR.
+    """
+    cliente = api()
+
+    d = cliente.post("/demo/cedula").json()
+    servida = cliente.get(d["imagenes"]["anverso"])
+
+    assert servida.headers["content-type"] == "image/png"
+    assert servida.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_la_cedula_fabricada_la_lee_el_sistema_entera(api):
+    """Si no, no serviria para una demostracion: la MRZ tiene que cuadrar."""
+    cliente = api()
+
+    fabricada = cliente.post("/demo/cedula").json()
+    anverso = cliente.get(fabricada["imagenes"]["anverso"]).content
+    reverso = cliente.get(fabricada["imagenes"]["reverso"]).content
+
+    cuerpo = cliente.post(
+        "/demo/medir",
+        files={
+            "anverso": ("a.png", anverso, "image/png"),
+            "reverso": ("r.png", reverso, "image/png"),
+        },
+    ).json()
+
+    senales = {s["id"]: s for s in cuerpo["senales"]}
+    assert senales["mrz.checks_ok"]["valor"] is True
+    assert senales["cross.nuip"]["valor"] == "match"
+    assert cuerpo["linea_base"]["decision"] == "approve"
+
+
+def test_sin_retrato_no_hay_cotejo_facial_y_se_dice_por_que(api):
+    """El marcador gris no es una cara, y la senal no puede fingir que si.
+
+    Una senal facial inventada sobre un documento sin foto seria
+    exactamente la clase de medicion que este proyecto no se permite.
+    """
+    cliente = api()
+
+    fabricada = cliente.post("/demo/cedula").json()
+    anverso = cliente.get(fabricada["imagenes"]["anverso"]).content
+    reverso = cliente.get(fabricada["imagenes"]["reverso"]).content
+
+    cuerpo = cliente.post(
+        "/demo/medir",
+        files={
+            "anverso": ("a.png", anverso, "image/png"),
+            "reverso": ("r.png", reverso, "image/png"),
+            "selfie": ("s.png", anverso, "image/png"),
+        },
+    ).json()
+
+    facial = next(s for s in cuerpo["senales"] if s["id"] == "facial.similarity")
+    assert facial["disponible"] is False
+    assert facial["motivo_no_disponible"]
