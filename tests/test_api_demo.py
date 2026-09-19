@@ -200,3 +200,22 @@ def test_la_pareja_dice_en_que_sentido_va_el_salto(api):
 
     assert cuerpo["pareja"]["caso"] == "ambiguo-apellido-difiere-una-letra"
     assert cuerpo["pareja"]["sentido"] == "romper"
+
+
+def test_la_linea_base_se_calcula_aparte_y_no_copia_al_agente(api):
+    """La comparacion que sostiene el proyecto: 12/13 del agente contra 10/13.
+
+    Se siembra al agente una decision de RECHAZO sobre un documento limpio,
+    que es lo contrario de lo que las reglas fijas dicen ante esas mismas
+    senales. Si el campo `linea_base` se limitara a repetir la decision del
+    agente -o a leerse del mismo sitio- las dos saldrian iguales y este test
+    lo veria. Es la unica forma de distinguir "se calculo" de "se copio".
+    """
+    cliente, _ = api(sembrar=DECISION_CON_CITA_FALSA)
+
+    cuerpo = cliente.get(f"/demo/casos/{CASO}").json()
+
+    assert cuerpo["decision"] == "reject"
+    assert cuerpo["linea_base"]["decision"] == "approve"
+    assert cuerpo["linea_base"]["acierta"] is True
+    assert cuerpo["acierta"] is False

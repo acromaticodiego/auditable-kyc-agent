@@ -50,6 +50,7 @@ from app.agent.runner import RunOutcome, run_agent
 from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.config import settings
 from app.domain.citation_audit import CitationStatus
+from app.evaluation.baseline import decide as decide_baseline
 from app.evaluation.catalog import TODAY, load_cases
 from app.signals.pipeline import build_signals
 
@@ -190,9 +191,21 @@ def ver_caso(
         pareja, sentido = PAREJAS_INVERSAS[caso_id], "reparar"
     else:
         pareja, sentido = None, None
+    # Que habria decidido la linea base de reglas fijas ante estas mismas
+    # senales. Es la mitad que faltaba: sin ella la pantalla ensena que el
+    # agente acierta, pero no que acierte donde las reglas no llegan, que
+    # es la afirmacion que sostiene el proyecto entero. No cuesta nada,
+    # son reglas en Python, asi que se calcula siempre.
+    base = decide_baseline(senales)
+
     return {
         "caso": caso_id,
         "modelo": run.model,
+        "linea_base": {
+            "decision": base.decision.value,
+            "acierta": base.decision is caso.expected_decision,
+            "resumen": base.summary,
+        },
         "esperado": caso.expected_decision.value,
         "decision": run.decision.decision.value,
         "acierta": run.decision.decision is caso.expected_decision,

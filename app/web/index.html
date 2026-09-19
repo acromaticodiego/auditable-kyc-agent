@@ -91,6 +91,12 @@
   .marcador div { font-size: 12.5px; color: var(--tenue); }
   .marcador b { display: block; font-size: 18px; color: var(--texto); font-weight: 650; }
 
+  .base { margin: 14px 0 0; padding: 11px 15px; border-radius: 9px; font-size: 13.5px;
+          border: 1px solid var(--borde); background: var(--panel); color: var(--tenue); }
+  .base.gana { border-color: rgba(110,168,254,.45); background: rgba(110,168,254,.07);
+               color: #cfd6e4; }
+  .base b { color: var(--texto); }
+
   .romper { margin: 26px 0 0; padding: 16px 18px; border: 1px dashed var(--borde);
             border-radius: 10px; background: var(--panel); }
   .romper p { margin: 0 0 12px; font-size: 13.5px; color: var(--tenue); max-width: 80ch; }
@@ -112,11 +118,12 @@
 <header>
   <h1>Agente de verificación de identidad — expediente auditable</h1>
   <p>
-    El modelo no ve las imágenes. Código normal mide 28 señales sobre la cédula
-    y la selfie, y al modelo se le manda solo esa lista como texto. Lo que se
-    enseña abajo no es lo que el agente dijo, sino <strong>si era verdad</strong>:
-    cada fundamento cita una señal con su valor y ese valor se contrasta, uno a uno,
-    contra lo que de verdad se midió.
+    El modelo no ve las imágenes. Código normal mide las señales —28 sobre la
+    cédula; 29 cuando además hay selfie, con la comparación facial— y al modelo
+    se le manda solo esa lista como texto. Estos casos son de documento, sin
+    selfie. Lo que se enseña abajo no es lo que el agente dijo, sino
+    <strong>si era verdad</strong>: cada fundamento cita una señal con su valor
+    y ese valor se contrasta, uno a uno, contra lo que de verdad se midió.
   </p>
   <span class="sello" id="sello">Decisiones reales, servidas desde caché · no gasta cupo</span>
 </header>
@@ -155,7 +162,14 @@ function pinta(valor) {
   if (valor === null || valor === undefined) return '<span class="nodisp">no disponible</span>';
   if (typeof valor === "boolean") return valor ? "sí" : "no";
   if (typeof valor === "number") return Number.isInteger(valor) ? valor : valor.toFixed(3);
-  return String(valor);
+  // El modelo cita los booleanos como la cadena "True"/"False" y la señal
+  // real es un booleano de verdad. El auditor los trata como iguales, así
+  // que pintarlos distinto enseñaría una discrepancia que no existe justo
+  // en la tabla cuyo trabajo es que las dos columnas se comparen de un
+  // vistazo.
+  const texto = String(valor);
+  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "sí" : "no";
+  return texto;
 }
 
 function pintaLista(actual) {
@@ -206,6 +220,23 @@ async function abre(id) {
           : '<span class="nodisp">' + (s.motivo_no_disponible || "no disponible") + '</span>'}</td>
     </tr>`).join("");
 
+  // Sin esto la pantalla enseña que el agente acierta, pero no que acierte
+  // donde las reglas fijas no llegan, que es la afirmación que sostiene el
+  // proyecto. Las reglas no cuestan cupo: se calculan siempre.
+  const b = d.linea_base;
+  const discrepan = b.decision !== d.decision;
+  const base = `
+    <div class="base ${discrepan ? "gana" : ""}">
+      ${discrepan
+        ? `Ante estas mismas señales, la línea base de reglas fijas habría dicho
+           <b>${ETIQUETA[b.decision] || b.decision}</b> —
+           ${b.acierta ? "y habría acertado igual." :
+             "<b>y se habría equivocado.</b> Aquí es donde el agente gana: no por decidir mejor en general, sino por combinar señales que un umbral no sabe pesar juntas."}`
+        : `La línea base de reglas fijas decide lo mismo aquí:
+           <b>${ETIQUETA[b.decision] || b.decision}</b>. En 11 de los 13 casos coinciden;
+           el agente se separa en dos, y en los dos tiene razón.`}
+    </div>`;
+
   const rompiendo = d.pareja && d.pareja.sentido === "romper";
   const romper = d.pareja ? `
     <div class="romper">
@@ -235,6 +266,7 @@ async function abre(id) {
       </span>
     </div>
     <p class="resumen">${d.resumen}</p>
+    ${base}
 
     <div class="marcador">
       <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
