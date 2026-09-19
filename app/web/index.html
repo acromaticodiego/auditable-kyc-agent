@@ -99,6 +99,14 @@
 
   .romper { margin: 26px 0 0; padding: 16px 18px; border: 1px dashed var(--borde);
             border-radius: 10px; background: var(--panel); }
+  .caso.subir { border-color: var(--acento); margin-bottom: 10px; font-weight: 600; }
+  #formulario { display: flex; flex-direction: column; gap: 10px; max-width: 460px; }
+  #formulario label { font-size: 13px; color: var(--tenue); display: flex;
+                      flex-direction: column; gap: 4px; }
+  #formulario input[type=file] { font: inherit; font-size: 12.5px; color: var(--texto); }
+  #formulario button { align-self: flex-start; margin-top: 4px; }
+  a.accion { display: inline-block; text-decoration: none; margin-right: 8px; }
+
   .romper p { margin: 0 0 12px; font-size: 13.5px; color: var(--tenue); max-width: 80ch; }
   button.accion {
     font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
@@ -157,31 +165,121 @@ const ESTADO = {
 };
 
 let casos = [];
+let ultimaMedicion = null;
 
 function pinta(valor) {
   if (valor === null || valor === undefined) return '<span class="nodisp">no disponible</span>';
-  if (typeof valor === "boolean") return valor ? "sí" : "no";
+  if (typeof valor === "boolean") return valor ? "si" : "no";
   if (typeof valor === "number") return Number.isInteger(valor) ? valor : valor.toFixed(3);
-  // El modelo cita los booleanos como la cadena "True"/"False" y la señal
-  // real es un booleano de verdad. El auditor los trata como iguales, así
-  // que pintarlos distinto enseñaría una discrepancia que no existe justo
+  // El modelo cita los booleanos como la cadena "True"/"False" y la senal
+  // real es un booleano de verdad. El auditor los trata como iguales, asi
+  // que pintarlos distinto ensenaria una discrepancia que no existe justo
   // en la tabla cuyo trabajo es que las dos columnas se comparen de un
   // vistazo.
   const texto = String(valor);
-  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "sí" : "no";
+  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "si" : "no";
   return texto;
 }
+
+function bloqueSenales(d) {
+  const filas = d.senales.map(s => `
+    <tr>
+      <td><code>${s.id}</code></td>
+      <td>${s.descripcion}</td>
+      <td class="val">${s.disponible ? pinta(s.valor)
+          : '<span class="nodisp">' + (s.motivo_no_disponible || "no disponible") + '</span>'}</td>
+    </tr>`).join("");
+  return `
+    <details>
+      <summary>Ver las ${d.senales_totales} señales que se midieron</summary>
+      <table>
+        <thead><tr><th>Señal</th><th>Qué mide</th><th>Valor</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </details>`;
+}
+
+function tablaFundamentos(d) {
+  const filas = d.fundamentos.map(f => `
+    <tr>
+      <td><code>${f.senal}</code><div class="peso">${PESO[f.peso] || f.peso}</div></td>
+      <td>${f.texto}</td>
+      <td class="val">${pinta(f.valor_citado)}</td>
+      <td class="val">${pinta(f.valor_real)}</td>
+      <td class="${f.verificada ? "si" : "no"}">
+        ${f.verificada ? "\u2713 verificada" : "\u2717 " + (ESTADO[f.estado] || f.estado)}
+      </td>
+    </tr>`).join("");
+  return `
+    <h3>Por qué lo decidió, y si lo que dijo era cierto</h3>
+    <table>
+      <thead><tr>
+        <th>Señal</th><th>Lo que argumentó</th><th>Valor citado</th>
+        <th>Valor real</th><th>Contraste</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
+
+function bloqueMarcador(d) {
+  return `
+    <div class="marcador">
+      <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
+      <div><b>${d.auditoria.fiel ? "si" : "no"}</b>fiel (ninguna cita falsa)</div>
+      <div><b>${d.auditoria.completa ? "si" : "no"}</b>completa (no calló nada adverso)</div>
+      <div><b>${d.senales_totales}</b>señales medidas</div>
+    </div>`;
+}
+
+// Sin esto la pantalla ensena que el agente acierta, pero no que acierte
+// donde las reglas fijas no llegan, que es la afirmacion que sostiene el
+// proyecto. Las reglas no cuestan cupo: se calculan siempre.
+function bloqueBase(d) {
+  const b = d.linea_base;
+  const discrepan = b.decision !== d.decision;
+  const nota = b.acierta === null
+    ? "Aquí no hay etiqueta contra la que comparar: este documento lo has traído tú, así que nadie anotó de antemano qué debería salir."
+    : (b.acierta ? "y habría acertado igual."
+       : "<b>y se habría equivocado.</b> Aquí es donde el agente gana: no por decidir mejor en general, sino por combinar señales que un umbral no sabe pesar juntas.");
+  return `
+    <div class="base ${discrepan && b.acierta === false ? "gana" : ""}">
+      ${discrepan
+        ? `Ante estas mismas señales, la línea base de reglas fijas habría dicho
+           <b>${ETIQUETA[b.decision] || b.decision}</b> &mdash; ${nota}`
+        : `La línea base de reglas fijas decide lo mismo aquí:
+           <b>${ETIQUETA[b.decision] || b.decision}</b>.`}
+    </div>`;
+}
+
+function cabecera(d, extra) {
+  return `
+    <div class="cabecera">
+      <span class="decision ${d.decision}">${ETIQUETA[d.decision] || d.decision}</span>
+      <span class="esperado">${extra}</span>
+    </div>
+    <p class="resumen">${d.resumen}</p>`;
+}
+
+/* ---------- la galería: casos ya medidos ---------- */
 
 function pintaLista(actual) {
   const lista = document.getElementById("lista");
   lista.innerHTML = "";
+
+  const subir = document.createElement("button");
+  subir.className = "caso subir";
+  subir.setAttribute("aria-current", actual === "__subir__" ? "true" : "false");
+  subir.innerHTML = "Subir un documento<small>en vivo, con tu propio fichero</small>";
+  subir.onclick = () => abreSubida();
+  lista.appendChild(subir);
+
   for (const caso of casos) {
     const boton = document.createElement("button");
     boton.className = "caso" + (caso.en_cache ? "" : " frio");
     boton.disabled = !caso.en_cache;
     boton.setAttribute("aria-current", caso.id === actual ? "true" : "false");
     boton.innerHTML = `${caso.id}<small>debería ${ETIQUETA[caso.esperado] || caso.esperado}` +
-      (caso.en_cache ? "" : " · sin medir") + `</small>`;
+      (caso.en_cache ? "" : " &middot; sin medir") + `</small>`;
     boton.onclick = () => abre(caso.id);
     lista.appendChild(boton);
   }
@@ -189,7 +287,7 @@ function pintaLista(actual) {
 
 async function abre(id) {
   const panel = document.getElementById("panel");
-  panel.innerHTML = '<p class="cargando">Midiendo las 28 señales…</p>';
+  panel.innerHTML = '<p class="cargando">Midiendo las señales…</p>';
   pintaLista(id);
   history.replaceState(null, "", "#" + id);
 
@@ -201,42 +299,6 @@ async function abre(id) {
   }
   const d = await respuesta.json();
 
-  const filas = d.fundamentos.map(f => `
-    <tr>
-      <td><code>${f.senal}</code><div class="peso">${PESO[f.peso] || f.peso}</div></td>
-      <td>${f.texto}</td>
-      <td class="val">${pinta(f.valor_citado)}</td>
-      <td class="val">${pinta(f.valor_real)}</td>
-      <td class="${f.verificada ? "si" : "no"}">
-        ${f.verificada ? "✓ verificada" : "✗ " + (ESTADO[f.estado] || f.estado)}
-      </td>
-    </tr>`).join("");
-
-  const senales = d.senales.map(s => `
-    <tr>
-      <td><code>${s.id}</code></td>
-      <td>${s.descripcion}</td>
-      <td class="val">${s.disponible ? pinta(s.valor)
-          : '<span class="nodisp">' + (s.motivo_no_disponible || "no disponible") + '</span>'}</td>
-    </tr>`).join("");
-
-  // Sin esto la pantalla enseña que el agente acierta, pero no que acierte
-  // donde las reglas fijas no llegan, que es la afirmación que sostiene el
-  // proyecto. Las reglas no cuestan cupo: se calculan siempre.
-  const b = d.linea_base;
-  const discrepan = b.decision !== d.decision;
-  const base = `
-    <div class="base ${discrepan ? "gana" : ""}">
-      ${discrepan
-        ? `Ante estas mismas señales, la línea base de reglas fijas habría dicho
-           <b>${ETIQUETA[b.decision] || b.decision}</b> —
-           ${b.acierta ? "y habría acertado igual." :
-             "<b>y se habría equivocado.</b> Aquí es donde el agente gana: no por decidir mejor en general, sino por combinar señales que un umbral no sabe pesar juntas."}`
-        : `La línea base de reglas fijas decide lo mismo aquí:
-           <b>${ETIQUETA[b.decision] || b.decision}</b>. En 11 de los 13 casos coinciden;
-           el agente se separa en dos, y en los dos tiene razón.`}
-    </div>`;
-
   const rompiendo = d.pareja && d.pareja.sentido === "romper";
   const romper = d.pareja ? `
     <div class="romper">
@@ -246,52 +308,139 @@ async function abre(id) {
              retocado: todo lo demás es idéntico. Al saltar, mira cómo el cotejo de ese campo
              pasa a <code>mismatch</code> y la decisión se mueve detrás.`
           : `Este es el documento con <strong>${d.pareja.que_cambia}</strong> retocado.
-             Vuelve al intacto y verás desaparecer el <code>mismatch</code>: lo único
-             que cambia entre los dos es ese campo.`}
-        No se muta la imagen en vivo porque eso sería una petición nueva al modelo;
-        el gemelo ya está medido.
+             Vuelve al intacto y verás desaparecer el <code>mismatch</code>.`}
       </p>
       <button class="accion" onclick="abre('${d.pareja.caso}')">
-        ${rompiendo ? "Romper el documento →" : "← Volver al documento intacto"}
+        ${rompiendo ? "Romper el documento \u2192" : "\u2190 Volver al documento intacto"}
       </button>
     </div>` : "";
 
-  panel.innerHTML = `
-    <div class="cabecera">
-      <span class="decision ${d.decision}">${ETIQUETA[d.decision] || d.decision}</span>
-      <span class="esperado">
-        esperado ${ETIQUETA[d.esperado] || d.esperado} ·
-        ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} ·
-        modelo <code>${d.modelo}</code>
-      </span>
-    </div>
-    <p class="resumen">${d.resumen}</p>
-    ${base}
+  panel.innerHTML =
+    cabecera(d, `esperado ${ETIQUETA[d.esperado] || d.esperado} &middot;
+      ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} &middot;
+      modelo <code>${d.modelo}</code>`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + romper
+    + `<div class="romper">
+         <p>¿Y si en vez de elegir de una lista traes tu propio documento? Descarga
+            este par, retócalo en cualquier editor y súbelo.</p>
+         <a class="accion" href="/demo/casos/${d.caso}/imagen/anverso">Descargar anverso</a>
+         <a class="accion" href="/demo/casos/${d.caso}/imagen/reverso">Descargar reverso</a>
+         <button class="accion" onclick="abreSubida()">Ir a subir \u2192</button>
+       </div>`
+    + bloqueSenales(d);
+}
 
+/* ---------- la subida: un documento traído por quien mira ---------- */
+
+function abreSubida() {
+  pintaLista("__subir__");
+  history.replaceState(null, "", "#subir");
+  document.getElementById("panel").innerHTML = `
+    <h3 style="margin-top:0">Tu propio documento</h3>
+    <div class="romper">
+      <p>
+        Medir es <strong>gratis y se puede repetir</strong>: el OCR, los dígitos de
+        control de la MRZ, los cotejos, la nitidez y las caras son código normal y
+        no piden nada a ningún modelo. Preguntarle al agente sí cuesta una petición
+        de las veinte del día, así que va aparte y te dice antes lo que gasta.
+      </p>
+      <p>
+        ¿No tienes una cédula a mano? Descarga un par sintético, ábrelo en cualquier
+        editor, cámbiale una letra al apellido y súbelo:
+        <a href="/demo/casos/legitimo-torcido/imagen/anverso">anverso</a> &middot;
+        <a href="/demo/casos/legitimo-torcido/imagen/reverso">reverso</a>
+      </p>
+      <form id="formulario" onsubmit="return medir(event)">
+        <label>Anverso <input type="file" name="anverso" accept="image/*" required></label>
+        <label>Reverso <input type="file" name="reverso" accept="image/*" required></label>
+        <label>Selfie <small>(opcional; añade la comparación facial)</small>
+               <input type="file" name="selfie" accept="image/*"></label>
+        <button class="accion" type="submit">Medir las señales &mdash; gratis</button>
+      </form>
+    </div>
+    <div id="resultado"></div>`;
+}
+
+async function medir(evento) {
+  evento.preventDefault();
+  const salida = document.getElementById("resultado");
+  salida.innerHTML = '<p class="cargando">Leyendo el documento: OCR, MRZ, cotejos, nitidez y caras. Puede tardar unos segundos…</p>';
+
+  const datos = new FormData(document.getElementById("formulario"));
+  const respuesta = await fetch("/demo/medir", { method: "POST", body: datos });
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    salida.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo leer el documento."}</div>`;
+    return false;
+  }
+  const d = await respuesta.json();
+  ultimaMedicion = d;
+
+  const cupo = d.cupo_restante === null ? "sin tope" : d.cupo_restante;
+  const coste = d.en_cache
+    ? "Esta combinación de señales ya está en caché: preguntarle <strong>no cuesta nada</strong>."
+    : `Preguntarle <strong>gasta 1 petición</strong> de las que quedan hoy (<strong>${cupo}</strong>).`;
+
+  salida.innerHTML = `
     <div class="marcador">
-      <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
-      <div><b>${d.auditoria.fiel ? "sí" : "no"}</b>fiel (ninguna cita falsa)</div>
-      <div><b>${d.auditoria.completa ? "sí" : "no"}</b>completa (no calló nada adverso)</div>
       <div><b>${d.senales_totales}</b>señales medidas</div>
+      <div><b>${d.con_selfie ? "sí" : "no"}</b>con selfie</div>
+      <div><b>${ETIQUETA[d.linea_base.decision] || d.linea_base.decision}</b>dirían las reglas fijas</div>
+      <div><b>${cupo}</b>peticiones de cupo hoy</div>
     </div>
+    <div class="base">
+      Hasta aquí no se ha pedido nada a ningún modelo. Lo de arriba lo decide
+      código normal: umbrales y comparaciones. ${coste}
+    </div>
+    <div class="romper">
+      <p>
+        El agente recibe esas ${d.senales_totales} señales como texto &mdash;no ve las
+        imágenes&mdash; y tiene que decidir y justificarse citando valores concretos,
+        que después se contrastan uno a uno contra lo que de verdad se midió.
+      </p>
+      <button class="accion" onclick="decidir()">
+        ${d.en_cache ? "Preguntar al agente \u2014 gratis, está en caché"
+                     : "Preguntar al agente \u2014 gasta 1 petición"}
+      </button>
+    </div>
+    ${bloqueSenales(d)}`;
+  return false;
+}
 
-    <h3>Por qué lo decidió, y si lo que dijo era cierto</h3>
-    <table>
-      <thead><tr>
-        <th>Señal</th><th>Lo que argumentó</th><th>Valor citado</th>
-        <th>Valor real</th><th>Contraste</th>
-      </tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
-    ${romper}
+async function decidir() {
+  const salida = document.getElementById("resultado");
+  salida.innerHTML = '<p class="cargando">Preguntando al agente…</p>';
 
-    <details>
-      <summary>Ver las ${d.senales_totales} señales que se le pasaron al modelo</summary>
-      <table>
-        <thead><tr><th>Señal</th><th>Qué mide</th><th>Valor</th></tr></thead>
-        <tbody>${senales}</tbody>
-      </table>
-    </details>`;
+  const datos = new FormData();
+  datos.append("ficha", ultimaMedicion.ficha);
+  const respuesta = await fetch("/demo/decidir", { method: "POST", body: datos });
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    salida.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo decidir."}</div>`;
+    return;
+  }
+  const d = await respuesta.json();
+
+  if (!d.decidio_el_agente) {
+    // No es un fallo de la pantalla: es el sistema haciendo lo que esta
+    // disenado para hacer cuando el proveedor no contesta.
+    salida.innerHTML = `
+      <div class="base gana">
+        <b>El agente no contestó</b> (${d.motivo}), y el sistema decidió igualmente:
+        <b>${ETIQUETA[d.decision] || d.decision}</b>.
+        Ni aprueba ni rechaza. Aprobar sin haber leído la evidencia es el fallo caro
+        de un KYC, y rechazar acusaría a una persona de suplantación porque se cayó
+        una API. Escalar es admitir que el sistema no sabe, que es lo único cierto
+        en ese momento.
+      </div>
+      <div class="error">${(d.error || "").slice(0, 400)}</div>
+      ${bloqueSenales(d)}`;
+    return;
+  }
+
+  salida.innerHTML =
+    cabecera(d, `modelo <code>${d.modelo}</code>${d.desde_cache ? " &middot; servido desde caché" : " &middot; petición recién hecha"}`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueSenales(d);
 }
 
 (async () => {
@@ -299,9 +448,10 @@ async function abre(id) {
   const d = await r.json();
   casos = d.casos;
   document.getElementById("sello").textContent =
-    `Decisiones reales de ${d.modelo}, servidas desde caché · no gasta cupo`;
-  pintaLista(null);
+    `Decisiones reales de ${d.modelo} \u00b7 medir es gratis; preguntar al agente se autoriza aparte`;
   const inicial = location.hash.slice(1);
+  if (inicial === "subir") { abreSubida(); return; }
+  pintaLista(null);
   abre(casos.some(c => c.id === inicial && c.en_cache) ? inicial : "legitimo-torcido");
 })();
 </script>

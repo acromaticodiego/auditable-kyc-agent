@@ -38,10 +38,15 @@ con y sin el retoque.
 
 from __future__ import annotations
 
+import io
+import uuid
+from collections import OrderedDict
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
+
+from app.api.verifications import _abrir, _leer_acotado
 
 from app.agent.cache import ResponseCache
 from app.agent.gemini import GeminiClient
@@ -67,6 +72,27 @@ PAREJAS = {
 }
 # La vuelta atras, para que el boton funcione en los dos sentidos.
 PAREJAS_INVERSAS = {roto: (limpio, que) for limpio, (roto, que) in PAREJAS.items()}
+
+
+# Las mediciones recien hechas, a la espera de que alguien decida si vale
+# la pena preguntarle al agente. Viven en memoria y se pierden al
+# reiniciar, que es justo lo que deben hacer: son de una sesion de demo,
+# no un registro. El registro de verdad es `POST /verificaciones`, que
+# guarda en Postgres.
+#
+# El tope existe para que una pantalla abierta toda una tarde no se coma
+# la memoria del contenedor con juegos de senales de documentos que nadie
+# va a volver a mirar.
+_MEDICIONES: OrderedDict[str, object] = OrderedDict()
+MAX_MEDICIONES = 32
+
+
+def _recordar(senales) -> str:
+    ficha = uuid.uuid4().hex
+    _MEDICIONES[ficha] = senales
+    while len(_MEDICIONES) > MAX_MEDICIONES:
+        _MEDICIONES.popitem(last=False)
+    return ficha
 
 
 def get_demo_client() -> GeminiClient:
@@ -226,3 +252,172 @@ def ver_caso(
         ),
         "estados_posibles": [e.value for e in CitationStatus],
     }
+
+
+def _expediente(run, senales, *, caso=None) -> dict:
+    """La forma que entiende la pantalla, venga de un caso o de una subida."""
+    por_senal = {r.signal_id: r for r in run.audit.results}
+    fundamentos = []
+    for fundamento in run.decision.groundings:
+        resultado = por_senal.get(fundamento.signal_id)
+        fundamentos.append(
+            {
+                "senal": fundamento.signal_id,
+                "peso": fundamento.weight.value,
+                "texto": fundamento.text,
+                "valor_citado": fundamento.cited_value,
+                "verificada": resultado is not None and resultado.valid,
+                "estado": resultado.status.value if resultado else "sin_contrastar",
+                "valor_real": resultado.actual_value if resultado else None,
+            }
+        )
+    base = decide_baseline(senales)
+    return {
+        "modelo": run.model,
+        "decision": run.decision.decision.value,
+        "resumen": run.decision.summary,
+        "fundamentos": fundamentos,
+        "linea_base": {
+            "decision": base.decision.value,
+            "acierta": None if caso is None else base.decision is caso.expected_decision,
+            "resumen": base.summary,
+        },
+        "auditoria": {
+            "citas": len(run.audit.results),
+            "validas": sum(1 for r in run.audit.results if r.valid),
+            "fiel": run.audit.faithful,
+            "completa": run.complete,
+        },
+        "senales": [_senal_a_json(s) for s in senales],
+        "senales_totales": len(senales),
+    }
+
+
+@router.get(
+    "/demo/casos/{caso_id}/imagen/{cara}",
+    summary="El anverso o el reverso de un caso, en PNG",
+)
+def imagen_del_caso(caso_id: str, cara: str) -> Response:
+    """Para poder descargar un documento, retocarlo a mano y volver a subirlo.
+
+    Es lo que convierte la pantalla en una demostracion en vivo en vez de
+    una galeria: sin esto hay que traer una cedula de algun sitio, y las
+    reales no pueden entrar al repositorio. Con esto se descarga el
+    anverso, se le cambia una letra al apellido en cualquier editor y se
+    sube: el cotejo pasa a `mismatch` delante de quien mira.
+    """
+    if cara not in ("anverso", "reverso"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="cara desconocida")
+    caso = next((c for c in load_cases() if c.id == caso_id), None)
+    if caso is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"no hay {caso_id!r}")
+
+    anverso, reverso = caso.build()
+    buffer = io.BytesIO()
+    (anverso if cara == "anverso" else reverso).save(buffer, format="PNG")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="{caso_id}-{cara}.png"'
+        },
+    )
+
+
+@router.post(
+    "/demo/medir",
+    summary="Mide las senales de un documento subido. No gasta cupo.",
+)
+async def medir(
+    anverso: UploadFile = File(...),
+    reverso: UploadFile = File(...),
+    selfie: UploadFile | None = File(None),
+    modelo: GeminiClient = Depends(get_demo_client),
+) -> dict:
+    """El paso gratis, y el que de verdad se ensena en vivo.
+
+    Separado de decidir a proposito. Medir las senales es codigo normal
+    -OCR, digitos de control, cotejos, nitidez, caras- y no cuesta ni una
+    peticion, asi que se puede repetir delante de quien mire tantas veces
+    como haga falta. Preguntarle al agente cuesta, y por eso se autoriza
+    aparte, viendo antes el cupo que queda.
+
+    Un documento subido se evalua contra la fecha de HOY y no contra la
+    del catalogo. Es lo correcto -es lo que hara en produccion- y tiene un
+    efecto que conviene decir: casi nunca coincidira con una respuesta ya
+    guardada, asi que preguntarle al agente costara una peticion de
+    verdad.
+    """
+    bytes_anverso = await _leer_acotado(anverso, "anverso")
+    bytes_reverso = await _leer_acotado(reverso, "reverso")
+    imagen_anverso = _abrir(anverso, bytes_anverso, "anverso")
+    imagen_reverso = _abrir(reverso, bytes_reverso, "reverso")
+
+    imagen_selfie = None
+    if selfie is not None and selfie.filename:
+        bytes_selfie = await _leer_acotado(selfie, "selfie")
+        if bytes_selfie:
+            imagen_selfie = _abrir(selfie, bytes_selfie, "selfie")
+
+    senales = build_signals(imagen_anverso, imagen_reverso, selfie=imagen_selfie)
+    base = decide_baseline(senales)
+    en_cache = modelo.is_cached(build_prompt(senales), DECISION_RESPONSE_SCHEMA)
+
+    return {
+        "ficha": _recordar(senales),
+        "senales": [_senal_a_json(s) for s in senales],
+        "senales_totales": len(senales),
+        "con_selfie": imagen_selfie is not None,
+        "linea_base": {"decision": base.decision.value, "resumen": base.summary},
+        # Lo que la pantalla necesita para no mentir sobre el coste.
+        "en_cache": en_cache,
+        "cupo_restante": modelo.budget.remaining(modelo.model),
+    }
+
+
+@router.post(
+    "/demo/decidir",
+    summary="Le pregunta al agente por una medicion. GASTA una peticion si no esta en cache.",
+)
+def decidir(
+    ficha: str = Form(...), modelo: GeminiClient = Depends(get_demo_client)
+) -> dict:
+    """El unico sitio de la pantalla que puede gastar cupo.
+
+    Separarlo no es ceremonia: es la misma regla que la de las
+    herramientas de evaluacion, donde ver el plan dejo de lanzar la tanda
+    despues de que verlo costara tres peticiones de veinte.
+    """
+    senales = _MEDICIONES.get(ficha)
+    if senales is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=(
+                "esa medicion ya no esta. Viven en memoria y se pierden al "
+                "reiniciar la API o despues de unas cuantas. Vuelve a subir "
+                "el documento: medir no cuesta nada."
+            ),
+        )
+
+    run = run_agent(senales, modelo)
+
+    if run.outcome is not RunOutcome.DECIDED:
+        # No es un error de la pantalla, es el sistema comportandose como
+        # esta disenado: sin decision del agente, la solicitud va a
+        # revision humana. Ver docs/adr/0004. Se devuelve 200 por eso
+        # mismo: el sistema SI decidio.
+        return {
+            "decidio_el_agente": False,
+            "motivo": run.outcome.value,
+            "error": run.error,
+            "decision": run.effective_decision.value,
+            "cupo_restante": modelo.budget.remaining(modelo.model),
+            "senales": [_senal_a_json(s) for s in senales],
+            "senales_totales": len(senales),
+        }
+
+    expediente = _expediente(run, senales)
+    expediente["decidio_el_agente"] = True
+    expediente["desde_cache"] = run.from_cache
+    expediente["cupo_restante"] = modelo.budget.remaining(modelo.model)
+    return expediente
