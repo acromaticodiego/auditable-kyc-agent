@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente de verificación de identidad — expediente auditable</title>
+<style>
+  :root {
+    --fondo: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --borde: #2b313d;
+    --texto: #e6e9ef;
+    --tenue: #98a1b3;
+    --acento: #6ea8fe;
+    --ok: #4ade80;
+    --mal: #f87171;
+    --aviso: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    padding: 22px 28px 18px;
+    border-bottom: 1px solid var(--borde);
+    background: var(--panel);
+  }
+  header h1 { margin: 0 0 6px; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--tenue); font-size: 13.5px; max-width: 90ch; }
+  .sello {
+    display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 999px;
+    background: rgba(74,222,128,.12); color: var(--ok);
+    border: 1px solid rgba(74,222,128,.3); font-size: 12px; font-weight: 600;
+  }
+  main { display: grid; grid-template-columns: 290px 1fr; gap: 0; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  nav { border-right: 1px solid var(--borde); padding: 16px 12px; min-height: calc(100vh - 120px); }
+  nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+           color: var(--tenue); margin: 0 0 10px 8px; font-weight: 650; }
+  .caso {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    color: var(--texto); padding: 8px 10px; margin-bottom: 2px;
+    font: inherit; font-size: 13px; line-height: 1.35;
+  }
+  .caso:hover { background: var(--panel-2); }
+  .caso[aria-current="true"] { background: var(--panel-2); border-color: var(--acento); }
+  .caso small { display: block; color: var(--tenue); font-size: 11.5px; margin-top: 2px; }
+  .caso.frio { opacity: .4; cursor: not-allowed; }
+
+  section { padding: 22px 28px 60px; }
+  .cargando { color: var(--tenue); }
+
+  .cabecera { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .decision {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.02em; padding: 4px 14px;
+    border-radius: 8px; border: 1px solid var(--borde); background: var(--panel-2);
+  }
+  .decision.approve { color: var(--ok); border-color: rgba(74,222,128,.35); }
+  .decision.reject { color: var(--mal); border-color: rgba(248,113,113,.35); }
+  .decision.escalate_to_human, .decision.request_resubmission {
+    color: var(--aviso); border-color: rgba(251,191,36,.35);
+  }
+  .esperado { color: var(--tenue); font-size: 13px; }
+  .resumen { margin: 14px 0 26px; max-width: 95ch; color: #cfd6e4; }
+
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .09em;
+       color: var(--tenue); margin: 26px 0 10px; font-weight: 650; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--borde);
+           vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+       color: var(--tenue); font-weight: 650; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px;
+         color: var(--acento); }
+  .val { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .si { color: var(--ok); font-weight: 650; white-space: nowrap; }
+  .no { color: var(--mal); font-weight: 650; white-space: nowrap; }
+  .peso { color: var(--tenue); font-size: 11.5px; text-transform: uppercase;
+          letter-spacing: .05em; }
+
+  .marcador { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 0;
+              padding: 12px 16px; background: var(--panel); border: 1px solid var(--borde);
+              border-radius: 10px; }
+  .marcador div { font-size: 12.5px; color: var(--tenue); }
+  .marcador b { display: block; font-size: 18px; color: var(--texto); font-weight: 650; }
+
+  .romper { margin: 26px 0 0; padding: 16px 18px; border: 1px dashed var(--borde);
+            border-radius: 10px; background: var(--panel); }
+  .romper p { margin: 0 0 12px; font-size: 13.5px; color: var(--tenue); max-width: 80ch; }
+  button.accion {
+    font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    background: var(--acento); color: #0b1020; border: 0; border-radius: 8px;
+    padding: 8px 16px;
+  }
+  button.accion:hover { filter: brightness(1.08); }
+
+  details { margin-top: 26px; }
+  summary { cursor: pointer; color: var(--tenue); font-size: 13px; }
+  .nodisp { color: var(--tenue); font-style: italic; }
+  .error { color: var(--mal); background: rgba(248,113,113,.08);
+           border: 1px solid rgba(248,113,113,.3); padding: 14px 16px; border-radius: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agente de verificación de identidad — expediente auditable</h1>
+  <p>
+    El modelo no ve las imágenes. Código normal mide 28 señales sobre la cédula
+    y la selfie, y al modelo se le manda solo esa lista como texto. Lo que se
+    enseña abajo no es lo que el agente dijo, sino <strong>si era verdad</strong>:
+    cada fundamento cita una señal con su valor y ese valor se contrasta, uno a uno,
+    contra lo que de verdad se midió.
+  </p>
+  <span class="sello" id="sello">Decisiones reales, servidas desde caché · no gasta cupo</span>
+</header>
+
+<main>
+  <nav>
+    <h2>Casos de calibración</h2>
+    <div id="lista"><p class="cargando">Cargando…</p></div>
+  </nav>
+  <section id="panel"><p class="cargando">Elige un caso.</p></section>
+</main>
+
+<script>
+const ETIQUETA = {
+  approve: "APRUEBA",
+  reject: "RECHAZA",
+  escalate_to_human: "ESCALA A HUMANO",
+  request_resubmission: "PIDE OTRA FOTO",
+};
+const PESO = {
+  in_favor: "a favor",
+  against: "en contra",
+  inconclusive: "no concluyente",
+};
+const ESTADO = {
+  valid: "correcta",
+  unknown_signal: "señal inventada",
+  unavailable_signal: "se inventó una medición que no existe",
+  value_mismatch: "el valor citado no es el real",
+  missing_cited_value: "citó la señal sin decir cuánto valía",
+};
+
+let casos = [];
+
+function pinta(valor) {
+  if (valor === null || valor === undefined) return '<span class="nodisp">no disponible</span>';
+  if (typeof valor === "boolean") return valor ? "sí" : "no";
+  if (typeof valor === "number") return Number.isInteger(valor) ? valor : valor.toFixed(3);
+  return String(valor);
+}
+
+function pintaLista(actual) {
+  const lista = document.getElementById("lista");
+  lista.innerHTML = "";
+  for (const caso of casos) {
+    const boton = document.createElement("button");
+    boton.className = "caso" + (caso.en_cache ? "" : " frio");
+    boton.disabled = !caso.en_cache;
+    boton.setAttribute("aria-current", caso.id === actual ? "true" : "false");
+    boton.innerHTML = `${caso.id}<small>debería ${ETIQUETA[caso.esperado] || caso.esperado}` +
+      (caso.en_cache ? "" : " · sin medir") + `</small>`;
+    boton.onclick = () => abre(caso.id);
+    lista.appendChild(boton);
+  }
+}
+
+async function abre(id) {
+  const panel = document.getElementById("panel");
+  panel.innerHTML = '<p class="cargando">Midiendo las 28 señales…</p>';
+  pintaLista(id);
+  history.replaceState(null, "", "#" + id);
+
+  const respuesta = await fetch("/demo/casos/" + encodeURIComponent(id));
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    panel.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo abrir el caso."}</div>`;
+    return;
+  }
+  const d = await respuesta.json();
+
+  const filas = d.fundamentos.map(f => `
+    <tr>
+      <td><code>${f.senal}</code><div class="peso">${PESO[f.peso] || f.peso}</div></td>
+      <td>${f.texto}</td>
+      <td class="val">${pinta(f.valor_citado)}</td>
+      <td class="val">${pinta(f.valor_real)}</td>
+      <td class="${f.verificada ? "si" : "no"}">
+        ${f.verificada ? "✓ verificada" : "✗ " + (ESTADO[f.estado] || f.estado)}
+      </td>
+    </tr>`).join("");
+
+  const senales = d.senales.map(s => `
+    <tr>
+      <td><code>${s.id}</code></td>
+      <td>${s.descripcion}</td>
+      <td class="val">${s.disponible ? pinta(s.valor)
+          : '<span class="nodisp">' + (s.motivo_no_disponible || "no disponible") + '</span>'}</td>
+    </tr>`).join("");
+
+  const rompiendo = d.pareja && d.pareja.sentido === "romper";
+  const romper = d.pareja ? `
+    <div class="romper">
+      <p>
+        ${rompiendo
+          ? `Este documento tiene en el catálogo su gemelo con <strong>${d.pareja.que_cambia}</strong>
+             retocado: todo lo demás es idéntico. Al saltar, mira cómo el cotejo de ese campo
+             pasa a <code>mismatch</code> y la decisión se mueve detrás.`
+          : `Este es el documento con <strong>${d.pareja.que_cambia}</strong> retocado.
+             Vuelve al intacto y verás desaparecer el <code>mismatch</code>: lo único
+             que cambia entre los dos es ese campo.`}
+        No se muta la imagen en vivo porque eso sería una petición nueva al modelo;
+        el gemelo ya está medido.
+      </p>
+      <button class="accion" onclick="abre('${d.pareja.caso}')">
+        ${rompiendo ? "Romper el documento →" : "← Volver al documento intacto"}
+      </button>
+    </div>` : "";
+
+  panel.innerHTML = `
+    <div class="cabecera">
+      <span class="decision ${d.decision}">${ETIQUETA[d.decision] || d.decision}</span>
+      <span class="esperado">
+        esperado ${ETIQUETA[d.esperado] || d.esperado} ·
+        ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} ·
+        modelo <code>${d.modelo}</code>
+      </span>
+    </div>
+    <p class="resumen">${d.resumen}</p>
+
+    <div class="marcador">
+      <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
+      <div><b>${d.auditoria.fiel ? "sí" : "no"}</b>fiel (ninguna cita falsa)</div>
+      <div><b>${d.auditoria.completa ? "sí" : "no"}</b>completa (no calló nada adverso)</div>
+      <div><b>${d.senales_totales}</b>señales medidas</div>
+    </div>
+
+    <h3>Por qué lo decidió, y si lo que dijo era cierto</h3>
+    <table>
+      <thead><tr>
+        <th>Señal</th><th>Lo que argumentó</th><th>Valor citado</th>
+        <th>Valor real</th><th>Contraste</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${romper}
+
+    <details>
+      <summary>Ver las ${d.senales_totales} señales que se le pasaron al modelo</summary>
+      <table>
+        <thead><tr><th>Señal</th><th>Qué mide</th><th>Valor</th></tr></thead>
+        <tbody>${senales}</tbody>
+      </table>
+    </details>`;
+}
+
+(async () => {
+  const r = await fetch("/demo/casos");
+  const d = await r.json();
+  casos = d.casos;
+  document.getElementById("sello").textContent =
+    `Decisiones reales de ${d.modelo}, servidas desde caché · no gasta cupo`;
+  pintaLista(null);
+  const inicial = location.hash.slice(1);
+  abre(casos.some(c => c.id === inicial && c.en_cache) ? inicial : "legitimo-torcido");
+})();
+</script>
+</body>
+</html>
