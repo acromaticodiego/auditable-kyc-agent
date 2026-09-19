@@ -22,7 +22,10 @@ from app.agent.cache import ResponseCache
 from app.agent.gemini import GeminiClient
 from app.agent.runner import RunOutcome, run_agent
 from app.config import settings
+from app.agent.prompt import build_prompt
+from app.agent.schema import DECISION_RESPONSE_SCHEMA
 from app.evaluation.catalog import TODAY, load_cases
+from app.evaluation.split import CALIBRATION, HOLDOUT
 from app.signals.pipeline import build_signals
 
 
@@ -34,10 +37,41 @@ def main() -> int:
         default=None,
         help="identificador del caso; por defecto el primero de calibracion",
     )
+    parser.add_argument(
+        "--final",
+        action="store_true",
+        help=(
+            "sondea con un caso del reservado. Solo tiene sentido cuando la "
+            "medicion final ya esta lanzada y hay que recuperar los casos "
+            "que se cayeron."
+        ),
+    )
     args = parser.parse_args()
 
-    casos = sorted(load_cases(), key=lambda c: c.id)
-    caso = next((c for c in casos if c.id == args.caso), casos[0])
+    split = HOLDOUT if args.final else CALIBRATION
+    casos = sorted(
+        load_cases(split, final_measurement=args.final), key=lambda c: c.id
+    )
+
+    if args.caso is None:
+        caso = casos[0]
+    else:
+        # Antes esto era un `next(..., casos[0])` que ante un identificador
+        # desconocido se callaba y sondeaba el primero de calibracion. Como
+        # ese suele estar en cache, la sonda salia gratis y respondia "el
+        # modelo contesta" sin haber tocado la API: exactamente la mentira
+        # que esta herramienta existe para no contar. Una errata al teclear
+        # el nombre bastaba.
+        caso = next((c for c in casos if c.id == args.caso), None)
+        if caso is None:
+            print(f"No hay ningun caso {args.caso!r} en {split}.")
+            if not args.final:
+                print("Si es del conjunto reservado, anadir --final.")
+            print("Los de aqui son:")
+            for c in casos:
+                print(f"  {c.id}")
+            return 2
+
 
     modelo = GeminiClient(
         api_key=settings.gemini_api_key,
@@ -61,6 +95,16 @@ def main() -> int:
     print("Midiendo senales (sin tocar la API)...")
 
     senales = build_signals(*caso.build(), today=TODAY)
+
+    # Una sonda sobre un caso ya cacheado no toca la red, asi que
+    # contestaria "el modelo responde" sin haberlo preguntado. Es el
+    # mismo enganio que el de un --caso mal tecleado, por otra puerta.
+    if modelo.is_cached(build_prompt(senales), DECISION_RESPONSE_SCHEMA):
+        print()
+        print(f"AVISO: {caso.id} ya esta en cache para {args.modelo}.")
+        print("Lo que salga sale de disco y NO dice si el modelo responde")
+        print("hoy. Para sondear de verdad, elegir un caso sin cachear.")
+
     run = run_agent(senales, modelo)
 
     print()
