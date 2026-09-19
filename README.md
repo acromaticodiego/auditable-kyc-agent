@@ -1,5 +1,7 @@
 # Agente de verificación de identidad (KYC)
 
+[![tests](https://github.com/acromaticodiego/auditable-kyc-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/acromaticodiego/auditable-kyc-agent/actions/workflows/tests.yml)
+
 Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 **aprobar**, **rechazar**, **escalar a revisión humana** o **solicitar un
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
@@ -13,10 +15,17 @@ con fundamentos que citan la señal concreta que los sostiene.
 > base de reglas fijas.
 >
 > Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
-> línea base de reglas fijas, con **48 de 48 citas verificadas** y ninguna
+> línea base de reglas fijas, con **42 de 42 citas verificadas** y ninguna
 > señal adversa callada. Ese número es de calibración y no es el que se
-> publica: **el conjunto reservado sigue sin tocarse**, y esa medición se
-> hace una sola vez.
+> publica.
+>
+> **La medición del conjunto reservado está a medias.** Van 10 de sus 14
+> casos; los otros 4 no llegaron a medirse porque el proveedor devolvió 503
+> en dos de cada tres peticiones y se agotó el cupo del día. Lo medido no se
+> publica todavía: diez casos elegidos por cuáles sobrevivieron a una caída
+> no son una muestra de nada. Las respuestas obtenidas están en caché y el
+> prompt queda congelado desde ahora, así que completar los cuatro que
+> faltan da el mismo número que si hubiera salido de una sentada.
 
 ## La idea
 
@@ -39,13 +48,48 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
-La API queda en <http://localhost:8000/docs> y Postgres en el puerto 5434
-del anfitrión (5432 y 5433 ya los ocupa otro proyecto de esta maquina).
+Y se abre **<http://localhost:8000/>**. La documentación de la API está en
+`/docs`; Postgres queda en el puerto 5434 del anfitrión (5432 y 5433 ya los
+ocupa otro proyecto de esta máquina).
 
 ```powershell
 Invoke-RestMethod http://localhost:8000/health
 docker compose exec api pytest -q
 ```
+
+### La pantalla
+
+Una sola página servida por el propio FastAPI. Enseña, para cada caso, la
+decisión y sus fundamentos con **una columna que dice si cada cita era
+cierta**: la señal que el agente citó, el valor que le atribuyó, el valor
+que de verdad se midió, y si coinciden. Un expediente en JSON ya contiene
+eso, pero hay que leérselo entero; aquí se ve de un vistazo.
+
+Debajo de cada decisión aparece **qué habrían decidido las reglas fijas**
+ante esas mismas señales. Coinciden en 11 de los 13 casos. El agente se
+separa en dos y en los dos tiene razón, además en la dirección cara: la
+línea base aprueba a un menor de edad y aprueba un documento cuya
+expedición es posterior a su caducidad. En un KYC un falso aprobado cuesta
+mucho más que un falso rechazo.
+
+El botón **«romper el documento»** salta al caso del catálogo que es ese
+mismo documento con un campo retocado. Se ve cómo el cotejo de ese campo
+pasa a `mismatch` y la decisión se mueve detrás: no cambia de opinión
+porque sí, cambia porque cambió una señal concreta y rastreable.
+
+**La pantalla no gasta cupo y no puede gastarlo.** Sirve solo respuestas
+que ya están en caché y ante un caso sin medir devuelve `409` diciendo
+dónde se mide. Una demo se pulsa muchas veces delante de alguien, y con
+veinte peticiones al día una pantalla que decidiera en vivo se comería la
+medición del día en dos clics. Aun así **lo que se ve son decisiones
+reales del modelo**, no de un doble: salen de disco, pero las produjo
+`gemini-3.5-flash` ante ese mismo juego de señales. Enchufar el doble de
+ensayo habría sido más cómodo —responde siempre— y habría convertido la
+pantalla en las reglas fijas disfrazadas de agente.
+
+El conjunto reservado no es accesible desde ahí aunque también tenga casos
+en caché. No es por el cupo: una pantalla que invita a pulsar es la forma
+más fácil de acabar mirándolo «solo para ver cómo va».
 
 Un recorrido de cuatro actos por lo que hace el sistema, pensado para
 enseñarlo en una pantalla compartida:
@@ -65,6 +109,25 @@ comprobar que el arnés funciona antes de quemar el cupo del día:
 
 ```powershell
 docker compose exec api python scripts/evaluate_agent.py --simulacro
+```
+
+Ver lo que costaría una tanda es gratis y no la lanza: sin `--gastar`, la
+herramienta calcula el plan —casos, cuántos salen de caché, peor caso,
+cupo restante y qué casos faltan—, lo imprime y para antes de tocar la
+API. Las peticiones hay que autorizarlas.
+
+```powershell
+docker compose exec api python scripts/evaluate_agent.py --modelo gemini-3.5-flash
+docker compose exec api python scripts/evaluate_agent.py --modelo gemini-3.5-flash --gastar
+```
+
+Y saber qué credencial sigue valiendo tampoco cuesta cupo: listar modelos
+no consume cuota de generación, así que es la única pregunta sobre claves
+que se puede hacer gratis. Separa tres cosas que desde fuera se parecen
+—la clave vale, Google no la acepta, o el que está mal es Google—:
+
+```powershell
+docker compose exec -T api python scripts/check_keys.py < .env
 ```
 
 Una verificación completa, con las dos caras del documento:
@@ -301,12 +364,20 @@ sin tocarse.
 | Línea base de reglas fijas, **los mismos 13 casos** | 10/13 |
 | Explicaciones fieles | **13/13** |
 | Explicaciones completas | **13/13** |
-| Citas verificadas una a una | **48/48 correctas** |
+| Citas verificadas una a una | **42/42 correctas** |
 | Vueltas que acabaron en decisión | 13/13 |
 
 El agente le saca dos casos a la línea base, con **cero citas falsas y cero
 señales adversas calladas**. De esos 13, siete tenían alguna señal adversa
 que citar, así que la completitud perfecta no sale de un conjunto fácil.
+
+Esta tabla se volvió a medir entera después de que el prompt pasara a decir,
+en cada cotejo, si la aritmética de la MRZ ampara ese campo. **Las trece
+decisiones salieron idénticas**, incluido el único fallo. Lo que sí cambió
+fue el número de citas, de 48 a 42: el modelo argumenta más corto cuando se
+le dice de antemano qué campos tienen respaldo aritmético. Merece anotarse
+porque es la clase de cambio que se colaría sin verse si solo se mirara el
+marcador — el acierto no se movió y el comportamiento sí.
 
 #### La predicción, escrita antes de medir
 
@@ -543,6 +614,27 @@ casos.
   caso. Ambos corregidos, con tests que fijan los dos lados de la frontera
   horaria. Por eso existe `scripts/probe_model.py`, que gasta **una**
   petición para saber si un modelo responde hoy antes de fiarle una tanda.
+- **Ver lo que costaba una tanda costaba la tanda.** La herramienta
+  calculaba el plan, lo imprimía y seguía derecha a gastarlo: no había
+  forma de preguntar «¿cuántas peticiones cuesta esto?» sin pagarla. Costó
+  tres peticiones de veinte en un día, y con una medición que necesita
+  diecisiete, tres son la diferencia entre que quepa y que no. Ahora el
+  gasto se autoriza con `--gastar` y el caso por defecto es el inofensivo.
+- **Una clave puede morir a mitad de proyecto, y el 401 no se parecía a
+  eso.** Un 401 y un 503 se ven igual desde fuera —ninguno produce una
+  decisión— y exigen lo contrario: ante el 503 se espera, ante una
+  credencial rechazada esperar no sirve porque mañana falla igual. Con el
+  mensaje genérico «el modelo no contestó» se diagnosticó una caída de
+  Gemini que no existía. El 401 traía el motivo exacto,
+  `ACCESS_TOKEN_TYPE_UNSUPPORTED`, y el texto genérico lo tapaba. Ahora
+  tiene tipo propio, no se reintenta y **no cuenta cupo**: Google lo para
+  en la puerta, esa petición no llega al modelo. De ahí
+  `scripts/check_keys.py`, que responde gratis qué clave sigue valiendo.
+- **La sonda podía mentir sin tocar la red.** Un `--caso` mal tecleado caía
+  en silencio sobre el primer caso de calibración, que suele estar en
+  caché: coste cero y un «el modelo contesta» inventado. Una errata
+  bastaba. Ahora falla en vez de sustituir, y avisa cuando el caso que se
+  sondea ya está en caché.
 
 ## El conjunto de evaluación
 

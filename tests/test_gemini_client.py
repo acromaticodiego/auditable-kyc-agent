@@ -20,6 +20,7 @@ from app.agent.budget import (
 from app.agent.cache import ResponseCache
 from app.agent.gemini import (
     MAX_ESPERA_POR_MINUTO,
+    CredentialRejected,
     GeminiClient,
     GeminiError,
     QuotaExhausted,
@@ -753,3 +754,81 @@ def test_las_esperas_por_minuto_estan_acotadas(tmp_path):
         cliente.generate_json("x", SCHEMA)
 
     assert esperas == [5.0, 5.0]
+
+
+def test_un_401_no_se_cuenta_contra_el_cupo_del_dia(tmp_path):
+    """Google para la credencial en la puerta: esa peticion no llega al modelo.
+
+    Contarla no es una imprecision menor. La medicion final necesita 17 de
+    las 20 peticiones del dia, asi que probar tres claves malas seguidas
+    dejaria el contador local diciendo que la tanda no cabe cuando si cabe.
+    """
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=20)
+    client = build_client(
+        tmp_path,
+        lambda request: httpx.Response(401, json={"error": {"code": 401}}),
+        budget=budget,
+    )
+
+    with pytest.raises(CredentialRejected):
+        client.generate_json("hola", SCHEMA)
+
+    assert budget.spent("gemini-test") == 0
+    assert budget.remaining("gemini-test") == 20
+
+
+def test_un_503_si_se_cuenta_contra_el_cupo(tmp_path):
+    """La otra mitad de lo anterior, que es lo que le da sentido.
+
+    Sin este test, `refund` podria devolver la unidad en cualquier fallo y
+    el test de arriba seguiria pasando, borrando el hallazgo de que un 503
+    de sobrecarga SI consume cupo aunque no produzca una decision.
+    """
+    budget = RequestBudget(tmp_path / "budget.json", daily_limit=20)
+    client = build_client(
+        tmp_path,
+        lambda request: httpx.Response(503, text="overloaded"),
+        budget=budget,
+        max_retries=0,
+    )
+
+    with pytest.raises(GeminiError):
+        client.generate_json("hola", SCHEMA)
+
+    assert budget.spent("gemini-test") == 1
+
+
+def test_un_401_no_se_reintenta(tmp_path):
+    """Insistir no cambia una credencial que no vale, solo tarda mas."""
+    intentos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        intentos.append(request)
+        return httpx.Response(401, json={"error": {"code": 401}})
+
+    client = build_client(tmp_path, handler, max_retries=3)
+
+    with pytest.raises(CredentialRejected):
+        client.generate_json("hola", SCHEMA)
+
+    assert len(intentos) == 1
+
+
+def test_el_401_se_distingue_del_cupo_agotado(tmp_path):
+    """Los dos paran la tanda, pero uno se arregla esperando y el otro no.
+
+    `CredentialRejected` hereda de `GeminiError`, asi que lo unico que
+    impide que se trate como "el proveedor no respondio" es que tenga tipo
+    propio y se capture antes.
+    """
+    client = build_client(
+        tmp_path,
+        lambda request: httpx.Response(401, json={"error": {"code": 401}}),
+    )
+
+    with pytest.raises(CredentialRejected) as error:
+        client.generate_json("hola", SCHEMA)
+
+    assert not isinstance(error.value, QuotaExhausted)
+    assert "no es" in str(error.value).lower() or "NO es" in str(error.value)
+    assert ".env" in str(error.value)

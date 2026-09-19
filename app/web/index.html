@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente de verificación de identidad — expediente auditable</title>
+<style>
+  :root {
+    --fondo: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --borde: #2b313d;
+    --texto: #e6e9ef;
+    --tenue: #98a1b3;
+    --acento: #6ea8fe;
+    --ok: #4ade80;
+    --mal: #f87171;
+    --aviso: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* La pagina entera no se desplaza nunca: lo que necesite sitio se lo
+       pide a su propia columna. Una herramienta que obliga a bajar para
+       ver el veredicto no se puede ensenar en una pantalla compartida. */
+    overflow: hidden;
+  }
+
+  .app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 20px; border-bottom: 1px solid var(--borde); background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .sello {
+    padding: 2px 9px; border-radius: 999px; background: rgba(74,222,128,.12);
+    color: var(--ok); border: 1px solid rgba(74,222,128,.3);
+    font-size: 11.5px; font-weight: 600;
+  }
+  .ayuda {
+    margin-left: auto; font: inherit; font-size: 12px; cursor: pointer;
+    background: transparent; color: var(--tenue); border: 1px solid var(--borde);
+    border-radius: 7px; padding: 3px 10px;
+  }
+  .ayuda:hover { color: var(--texto); border-color: var(--acento); }
+
+  main {
+    display: grid; grid-template-columns: 236px minmax(0, 1fr) 328px;
+    min-height: 0; overflow: hidden;
+  }
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 210px minmax(0, 1fr); }
+    aside { display: none; }
+  }
+
+  nav, section, aside { min-height: 0; overflow-y: auto; }
+  nav { border-right: 1px solid var(--borde); padding: 10px 8px; }
+  aside { border-left: 1px solid var(--borde); padding: 12px 14px; }
+  section { padding: 16px 20px; }
+
+  nav h2, aside h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--tenue); margin: 0 0 8px 6px; font-weight: 650;
+  }
+  aside h2 { margin-left: 0; }
+
+  .caso {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
+    color: var(--texto); padding: 5px 9px; margin-bottom: 1px;
+    font: inherit; font-size: 12.5px; line-height: 1.3;
+  }
+  .caso:hover { background: var(--panel-2); }
+  .caso[aria-current="true"] { background: var(--panel-2); border-color: var(--acento); }
+  .caso small { display: block; color: var(--tenue); font-size: 10.5px; }
+  .caso.frio { opacity: .4; cursor: not-allowed; }
+  .caso.subir { border-color: var(--acento); margin-bottom: 8px; font-weight: 600; }
+
+  .cabecera { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .decision {
+    font-size: 19px; font-weight: 700; letter-spacing: -0.02em; padding: 3px 12px;
+    border-radius: 7px; border: 1px solid var(--borde); background: var(--panel-2);
+  }
+  .decision.approve { color: var(--ok); border-color: rgba(74,222,128,.35); }
+  .decision.reject { color: var(--mal); border-color: rgba(248,113,113,.35); }
+  .decision.escalate_to_human, .decision.request_resubmission {
+    color: var(--aviso); border-color: rgba(251,191,36,.35);
+  }
+  .esperado { color: var(--tenue); font-size: 12.5px; }
+  .resumen { margin: 10px 0 12px; color: #cfd6e4; font-size: 13.5px; }
+
+  .base { padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
+          border: 1px solid var(--borde); background: var(--panel); color: var(--tenue); }
+  .base.gana { border-color: rgba(110,168,254,.45); background: rgba(110,168,254,.07);
+               color: #cfd6e4; }
+  .base b { color: var(--texto); }
+
+  .marcador { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0;
+              padding: 8px 12px; background: var(--panel); border: 1px solid var(--borde);
+              border-radius: 8px; }
+  .marcador div { font-size: 11px; color: var(--tenue); }
+  .marcador b { display: block; font-size: 15px; color: var(--texto); font-weight: 650; }
+
+  h3 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+       color: var(--tenue); margin: 14px 0 6px; font-weight: 650; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borde);
+           vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--tenue); font-weight: 650; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+         color: var(--acento); }
+  .val { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+         white-space: nowrap; }
+  .si { color: var(--ok); font-weight: 650; white-space: nowrap; }
+  .no { color: var(--mal); font-weight: 650; white-space: nowrap; }
+  .peso { color: var(--tenue); font-size: 10px; text-transform: uppercase;
+          letter-spacing: .04em; }
+
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+           margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--borde); }
+  .barra span { font-size: 11.5px; color: var(--tenue); }
+  .accion {
+    font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    background: var(--acento); color: #0b1020; border: 0; border-radius: 7px;
+    padding: 6px 13px; text-decoration: none; display: inline-block;
+  }
+  .accion:hover { filter: brightness(1.08); }
+  .accion.flojo { background: transparent; color: var(--tenue);
+                  border: 1px solid var(--borde); }
+  .accion.flojo:hover { color: var(--texto); border-color: var(--acento); }
+
+  aside table { font-size: 11.5px; margin-bottom: 4px; }
+  aside td { padding: 3px 6px; border-bottom: 1px solid rgba(43,49,61,.5); }
+  aside .nom { color: var(--acento); font-family: ui-monospace, Consolas, monospace; }
+  aside .grupo { font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em;
+                 color: var(--tenue); font-weight: 650; margin: 12px 0 4px;
+                 padding-bottom: 3px; border-bottom: 1px solid var(--borde); }
+  aside .grupo:first-child { margin-top: 0; }
+  /* La fila se enciende cuando el agente se apoyo en ella. Es lo que ata
+     las dos columnas: a la izquierda lo que dijo, aqui lo que habia. */
+  aside tr.citada td { background: rgba(110,168,254,.11); }
+  aside tr.citada .nom { color: #a9caff; font-weight: 600; }
+  aside tr.citada td:first-child::before { content: "\2039 "; color: var(--acento); }
+  .nodisp { color: var(--tenue); font-style: italic; }
+
+  .caras { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .caras figure { margin: 0; }
+  .caras img { display: block; max-height: 148px; width: auto; border-radius: 7px;
+               border: 1px solid var(--borde); background: var(--panel-2); }
+  .caras figcaption { font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+                      color: var(--tenue); margin-top: 3px; }
+
+  #formulario { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+  #formulario label { font-size: 12px; color: var(--tenue); display: flex;
+                      flex-direction: column; gap: 3px; }
+  #formulario input[type=file] { font: inherit; font-size: 11.5px; color: var(--texto); }
+  .nota { font-size: 12.5px; color: var(--tenue); max-width: 78ch; margin: 0 0 12px; }
+  .nota a { color: var(--acento); }
+  .cargando { color: var(--tenue); font-size: 13px; }
+  .error { color: var(--mal); background: rgba(248,113,113,.08);
+           border: 1px solid rgba(248,113,113,.3); padding: 10px 12px;
+           border-radius: 8px; font-size: 12.5px; }
+
+  dialog {
+    max-width: 640px; border: 1px solid var(--borde); border-radius: 12px;
+    background: var(--panel); color: var(--texto); padding: 22px 24px;
+    font: inherit; font-size: 13.5px; line-height: 1.6;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog p { margin: 0 0 12px; }
+  dialog p:last-of-type { margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Agente de verificación de identidad</h1>
+    <span class="sello" id="sello">cargando…</span>
+    <button class="ayuda" onclick="document.getElementById('comofunciona').showModal()">
+      ¿Cómo funciona?
+    </button>
+  </header>
+  <main>
+    <nav>
+      <h2>Casos</h2>
+      <div id="lista"></div>
+    </nav>
+    <section id="panel"></section>
+    <aside id="lateral"></aside>
+  </main>
+</div>
+
+<dialog id="comofunciona">
+  <p>
+    <strong>El modelo no ve las imágenes.</strong> Código normal mide las señales
+    —28 sobre la cédula; 29 cuando además hay selfie, con la comparación facial—
+    y al modelo se le manda solo esa lista como texto.
+  </p>
+  <p>
+    Lo que se enseña no es lo que el agente dijo, sino <strong>si era verdad</strong>:
+    cada fundamento cita una señal con su valor, y ese valor se contrasta uno a uno
+    contra lo que de verdad se midió.
+  </p>
+  <p>
+    Debajo de cada decisión aparece qué habrían decidido unas reglas fijas ante esas
+    mismas señales. Ahí se ve dónde el agente aporta algo y dónde no.
+  </p>
+  <button class="accion" onclick="this.closest('dialog').close()">Entendido</button>
+</dialog>
+
+<script>
+const ETIQUETA = {
+  approve: "APRUEBA",
+  reject: "RECHAZA",
+  escalate_to_human: "ESCALA A HUMANO",
+  request_resubmission: "PIDE OTRA FOTO",
+};
+const PESO = {
+  in_favor: "a favor",
+  against: "en contra",
+  inconclusive: "no concluyente",
+};
+const ESTADO = {
+  valid: "correcta",
+  unknown_signal: "señal inventada",
+  unavailable_signal: "se inventó una medición que no existe",
+  value_mismatch: "el valor citado no es el real",
+  missing_cited_value: "citó la señal sin decir cuánto valía",
+};
+
+let casos = [];
+let ultimaMedicion = null;
+
+function pinta(valor) {
+  if (valor === null || valor === undefined) return '<span class="nodisp">n/d</span>';
+  if (typeof valor === "boolean") return valor ? "sí" : "no";
+  if (typeof valor === "number") return Number.isInteger(valor) ? valor : valor.toFixed(3);
+  // El modelo cita los booleanos como la cadena "True"/"False" y la señal
+  // real es un booleano de verdad. El auditor los trata como iguales, así
+  // que pintarlos distinto enseñaría una discrepancia que no existe justo
+  // en la tabla cuyo trabajo es que las dos columnas se comparen de un vistazo.
+  const texto = String(valor);
+  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "sí" : "no";
+  return texto;
+}
+
+/* Las señales viven en su propia columna y no debajo del veredicto: así se
+   leen a la vez que las citas, que es la comparación que importa, y además
+   dejan de empujar la decisión fuera de la pantalla. */
+const GRUPOS = {
+  quality: "Calidad de la captura",
+  mrz: "MRZ y sus dígitos de control",
+  ocr: "Lectura del anverso",
+  cross: "Cotejos anverso ↔ MRZ",
+  document: "El documento",
+  facial: "Comparación facial",
+};
+
+function pintaLateral(d) {
+  // Las que el agente uso para justificarse. Se resaltan aquí para poder
+  // seguir cada cita hasta la medición de la que salió sin buscarla.
+  const citadas = new Set((d.fundamentos || []).map(f => f.senal));
+
+  let html = `<h2>Las ${d.senales_totales} señales medidas</h2>`;
+  let grupoActual = null;
+  let abierta = false;
+
+  for (const s of d.senales) {
+    const grupo = s.id.split(".")[0];
+    if (grupo !== grupoActual) {
+      if (abierta) html += "</tbody></table>";
+      html += `<div class="grupo">${GRUPOS[grupo] || grupo}</div><table><tbody>`;
+      grupoActual = grupo;
+      abierta = true;
+    }
+    html += `
+      <tr class="${citadas.has(s.id) ? "citada" : ""}" title="${s.descripcion}">
+        <td class="nom">${s.id.slice(grupo.length + 1)}</td>
+        <td class="val">${s.disponible ? pinta(s.valor)
+            : '<span class="nodisp">n/d</span>'}</td>
+      </tr>`;
+  }
+  if (abierta) html += "</tbody></table>";
+  document.getElementById("lateral").innerHTML = html;
+}
+
+/* El modelo no ve el documento; quien revisa la decisión sí debería. Sin
+   esto hay que descargar el PNG y abrirlo por fuera, que es justo lo que
+   una consola de revisión existe para evitar. */
+function bloqueCaras(d) {
+  if (!d.imagenes) return "";
+  const caras = Object.entries(d.imagenes).map(([cara, url]) => `
+    <figure>
+      <a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${cara}"></a>
+      <figcaption>${cara}</figcaption>
+    </figure>`).join("");
+  return `<div class="caras">${caras}</div>`;
+}
+
+function tablaFundamentos(d) {
+  const filas = d.fundamentos.map(f => `
+    <tr>
+      <td><code>${f.senal}</code><div class="peso">${PESO[f.peso] || f.peso}</div></td>
+      <td>${f.texto}</td>
+      <td class="val">${pinta(f.valor_citado)}</td>
+      <td class="val">${pinta(f.valor_real)}</td>
+      <td class="${f.verificada ? "si" : "no"}">
+        ${f.verificada ? "✓" : "✗ " + (ESTADO[f.estado] || f.estado)}
+      </td>
+    </tr>`).join("");
+  return `
+    <h3>Por qué lo decidió, y si lo que dijo era cierto</h3>
+    <table>
+      <thead><tr>
+        <th>Señal</th><th>Lo que argumentó</th><th>Citó</th>
+        <th>Real</th><th>Contraste</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+}
+
+function bloqueMarcador(d) {
+  return `
+    <div class="marcador">
+      <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
+      <div><b>${d.auditoria.fiel ? "sí" : "no"}</b>fiel</div>
+      <div><b>${d.auditoria.completa ? "sí" : "no"}</b>completa</div>
+      <div><b>${d.senales_totales}</b>señales</div>
+    </div>`;
+}
+
+// Sin esto la pantalla enseña que el agente acierta, pero no que acierte
+// donde las reglas fijas no llegan, que es la afirmación que sostiene el
+// proyecto. Las reglas no cuestan cupo: se calculan siempre.
+function bloqueBase(d) {
+  const b = d.linea_base;
+  const discrepan = b.decision !== d.decision;
+  const nota = b.acierta === null
+    ? "Aquí no hay etiqueta contra la que comparar: el documento lo has traído tú."
+    : (b.acierta ? "y habría acertado igual."
+       : "<b>y se habría equivocado.</b> Aquí es donde el agente gana: por combinar señales que un umbral no sabe pesar juntas.");
+  return `
+    <div class="base ${discrepan && b.acierta === false ? "gana" : ""}">
+      ${discrepan
+        ? `Las reglas fijas habrían dicho <b>${ETIQUETA[b.decision] || b.decision}</b> &mdash; ${nota}`
+        : `Las reglas fijas deciden lo mismo aquí: <b>${ETIQUETA[b.decision] || b.decision}</b>.`}
+    </div>`;
+}
+
+function cabecera(d, extra) {
+  return `
+    <div class="cabecera">
+      <span class="decision ${d.decision}">${ETIQUETA[d.decision] || d.decision}</span>
+      <span class="esperado">${extra}</span>
+    </div>
+    <p class="resumen">${d.resumen}</p>`;
+}
+
+/* ---------- la galería: casos ya medidos ---------- */
+
+function pintaLista(actual) {
+  const lista = document.getElementById("lista");
+  lista.innerHTML = "";
+
+  const subir = document.createElement("button");
+  subir.className = "caso subir";
+  subir.setAttribute("aria-current", actual === "__subir__" ? "true" : "false");
+  subir.innerHTML = "Subir un documento<small>en vivo, tu propio fichero</small>";
+  subir.onclick = () => abreSubida();
+  lista.appendChild(subir);
+
+  for (const caso of casos) {
+    const boton = document.createElement("button");
+    boton.className = "caso" + (caso.en_cache ? "" : " frio");
+    boton.disabled = !caso.en_cache;
+    boton.setAttribute("aria-current", caso.id === actual ? "true" : "false");
+    boton.innerHTML = `${caso.id}<small>debería ${ETIQUETA[caso.esperado] || caso.esperado}` +
+      (caso.en_cache ? "" : " &middot; sin medir") + `</small>`;
+    boton.onclick = () => abre(caso.id);
+    lista.appendChild(boton);
+  }
+}
+
+async function abre(id) {
+  const panel = document.getElementById("panel");
+  panel.innerHTML = '<p class="cargando">Midiendo las señales…</p>';
+  pintaLista(id);
+  history.replaceState(null, "", "#" + id);
+
+  const respuesta = await fetch("/demo/casos/" + encodeURIComponent(id));
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    panel.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo abrir el caso."}</div>`;
+    return;
+  }
+  const d = await respuesta.json();
+
+  const rompiendo = d.pareja && d.pareja.sentido === "romper";
+  const gemelo = d.pareja ? `
+    <button class="accion" onclick="abre('${d.pareja.caso}')">
+      ${rompiendo ? "Romper " + d.pareja.que_cambia + " →"
+                  : "← Volver al documento intacto"}
+    </button>
+    <span>${rompiendo
+      ? "el mismo documento con ese campo retocado; todo lo demás es idéntico"
+      : "este lleva " + d.pareja.que_cambia + " retocado"}</span>` : "";
+
+  panel.innerHTML =
+    cabecera(d, `esperado ${ETIQUETA[d.esperado] || d.esperado} &middot;
+      ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} &middot;
+      <code>${d.modelo}</code>`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueCaras(d)
+    + `<div class="barra">
+         ${gemelo}
+         <a class="accion flojo" href="/demo/casos/${d.caso}/imagen/anverso">Descargar anverso</a>
+         <a class="accion flojo" href="/demo/casos/${d.caso}/imagen/reverso">Descargar reverso</a>
+       </div>`;
+  pintaLateral(d);
+}
+
+/* ---------- la subida: un documento traído por quien mira ---------- */
+
+function abreSubida() {
+  pintaLista("__subir__");
+  history.replaceState(null, "", "#subir");
+  document.getElementById("lateral").innerHTML = "";
+  document.getElementById("panel").innerHTML = `
+    <h3 style="margin-top:0">Tu propio documento</h3>
+    <p class="nota">
+      Medir es gratis y se puede repetir: el OCR, los dígitos de control de la MRZ,
+      los cotejos y la nitidez son código normal. Preguntarle al agente sí cuesta
+      una petición, así que va aparte y te dice antes lo que gasta.
+      ¿No tienes una cédula a mano? Descarga un par sintético, cámbiale una letra
+      al apellido en cualquier editor y súbelo:
+      <a href="/demo/casos/legitimo-torcido/imagen/anverso">anverso</a> &middot;
+      <a href="/demo/casos/legitimo-torcido/imagen/reverso">reverso</a>
+    </p>
+    <form id="formulario" onsubmit="return medir(event)">
+      <label>Anverso <input type="file" name="anverso" accept="image/*" required></label>
+      <label>Reverso <input type="file" name="reverso" accept="image/*" required></label>
+      <label>Selfie <small>(opcional; añade la comparación facial)</small>
+             <input type="file" name="selfie" accept="image/*"></label>
+      <button class="accion" type="submit">Medir las señales &mdash; gratis</button>
+    </form>
+    <div id="resultado"></div>`;
+}
+
+async function medir(evento) {
+  evento.preventDefault();
+  const salida = document.getElementById("resultado");
+  salida.innerHTML = '<p class="cargando">Leyendo el documento: OCR, MRZ, cotejos, nitidez y caras…</p>';
+
+  const datos = new FormData(document.getElementById("formulario"));
+  const respuesta = await fetch("/demo/medir", { method: "POST", body: datos });
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    salida.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo leer el documento."}</div>`;
+    return false;
+  }
+  const d = await respuesta.json();
+  ultimaMedicion = d;
+  pintaLateral(d);
+
+  const cupo = d.cupo_restante === null ? "sin tope" : d.cupo_restante;
+  salida.innerHTML = `
+    <div class="marcador">
+      <div><b>${d.senales_totales}</b>señales medidas</div>
+      <div><b>${d.con_selfie ? "sí" : "no"}</b>con selfie</div>
+      <div><b>${ETIQUETA[d.linea_base.decision] || d.linea_base.decision}</b>dirían las reglas fijas</div>
+      <div><b>${cupo}</b>cupo hoy</div>
+    </div>
+    <div class="base">
+      Hasta aquí no se ha pedido nada a ningún modelo: lo de arriba lo decide código
+      normal. ${d.en_cache
+        ? "Estas señales ya se preguntaron: hacerlo otra vez <b>no cuesta nada</b>."
+        : `Preguntarle al agente <b>gasta 1 petición</b> de las ${cupo} que quedan hoy.`}
+    </div>
+    <div class="barra">
+      <button class="accion" onclick="decidir()">
+        ${d.en_cache ? "Preguntar al agente — gratis" : "Preguntar al agente — gasta 1"}
+      </button>
+      <span>recibe esas ${d.senales_totales} señales como texto; no ve las imágenes</span>
+    </div>
+    ${bloqueCaras(d)}`;
+  return false;
+}
+
+async function decidir() {
+  const salida = document.getElementById("resultado");
+  salida.innerHTML = '<p class="cargando">Preguntando al agente…</p>';
+
+  const datos = new FormData();
+  datos.append("ficha", ultimaMedicion.ficha);
+  const respuesta = await fetch("/demo/decidir", { method: "POST", body: datos });
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    salida.innerHTML = `<div class="error">${cuerpo.detail || "No se pudo decidir."}</div>`;
+    return;
+  }
+  const d = await respuesta.json();
+  pintaLateral(d);
+
+  if (!d.decidio_el_agente) {
+    // No es un fallo de la pantalla: es el sistema haciendo lo que está
+    // diseñado para hacer cuando el proveedor no contesta.
+    salida.innerHTML = `
+      <div class="base gana">
+        <b>El agente no contestó</b> (${d.motivo}) y el sistema decidió igualmente:
+        <b>${ETIQUETA[d.decision] || d.decision}</b>. Ni aprueba ni rechaza. Aprobar sin
+        haber leído la evidencia es el fallo caro de un KYC, y rechazar acusaría a
+        alguien de suplantación porque se cayó una API.
+      </div>`;
+    return;
+  }
+
+  salida.innerHTML =
+    cabecera(d, `<code>${d.modelo}</code> &middot;
+      ${d.desde_cache ? "servido desde caché" : "petición recién hecha"} &middot;
+      quedan ${d.cupo_restante === null ? "sin tope" : d.cupo_restante}`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueCaras(d);
+}
+
+(async () => {
+  const r = await fetch("/demo/casos");
+  const d = await r.json();
+  casos = d.casos;
+  document.getElementById("sello").textContent =
+    `${d.modelo} · medir es gratis; preguntar se autoriza aparte`;
+  const inicial = location.hash.slice(1);
+  if (inicial === "subir") { abreSubida(); return; }
+  pintaLista(null);
+  abre(casos.some(c => c.id === inicial && c.en_cache) ? inicial : "legitimo-torcido");
+})();
+</script>
+</body>
+</html>

@@ -41,6 +41,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--modelo", default=settings.gemini_model)
     parser.add_argument(
+        "--gastar",
+        action="store_true",
+        help=(
+            "autoriza las peticiones. Sin esto calcula el plan, lo imprime "
+            "y para sin tocar la API."
+        ),
+    )
+    parser.add_argument(
         "--simulacro",
         action="store_true",
         help="ensaya sin llamar a la API. No mide nada del agente.",
@@ -114,6 +122,19 @@ def main() -> int:
             f"\n  No alcanza: hacen falta {len(faltantes)} y quedan {disponibles}."
         )
         return 1
+
+    # La misma puerta que en evaluate_agent.py, por el mismo motivo: ver
+    # el plan no puede costar la tanda. Cerrarla solo alli dejaria abierta
+    # la otra mitad, y las dos herramientas gastan del mismo cupo diario.
+    if faltantes and not args.simulacro and not args.gastar:
+        print()
+        print(f"  PARADO: esto gastaria hasta {len(faltantes)} peticiones y no se")
+        print("  ha autorizado. El plan de arriba ya esta calculado.")
+        print()
+        print("  Faltan por pedir: " + ", ".join(c.id for c in faltantes[:12]))
+        print()
+        print("  Para lanzarla de verdad, repetir anadiendo --gastar.")
+        return 0
 
     aciertos = 0
     contestados = 0

@@ -31,6 +31,10 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 # es uno y no dos.
 RETRYABLE_STATUS = frozenset({500, 502, 503, 504})
 
+# Google rechaza la credencial antes de mirar el modelo o el cupo.  No se
+# reintenta y, sobre todo, no se cuenta: ver `CredentialRejected`.
+AUTH_STATUS = frozenset({401, 403})
+
 
 class GeminiError(RuntimeError):
     pass
@@ -90,6 +94,24 @@ def _quota_por_minuto(body: str) -> tuple[bool, float]:
                 espera = 0.0
 
     return por_minuto, espera
+
+
+class CredentialRejected(GeminiError):
+    """Google no acepta la credencial.  Ni es cupo ni es una caida suya.
+
+    Merece su propio tipo porque las tres cosas se parecen desde fuera
+    -ninguna produce una decision- y exigen reacciones opuestas: ante un
+    503 se espera y se reintenta mas tarde, ante el cupo se espera a
+    medianoche del Pacifico, y ante esto no se espera nada porque manana
+    fallara igual.  Se arregla el fichero .env y se vuelve a intentar.
+
+    La distincion la pago una sesion entera.  La sonda devolvia el mismo
+    "el modelo no contesto" para un 401 que para un 503, asi que se
+    diagnostico una caida de Gemini que no existia y se fue a mirar la
+    disponibilidad del modelo cuando el problema era que la clave del
+    .env no era una clave de API.  El 401 traia el motivo exacto
+    (`ACCESS_TOKEN_TYPE_UNSUPPORTED`) y el mensaje generico lo tapaba.
+    """
 
 
 class QuotaExhausted(GeminiError):
@@ -282,6 +304,17 @@ class GeminiClient:
                 if response.status_code in RETRYABLE_STATUS:
                     last_error = GeminiError(
                         f"HTTP {response.status_code}: {response.text}"
+                    )
+                elif response.status_code in AUTH_STATUS:
+                    # Se devuelve la unidad anotada antes del POST: esta
+                    # peticion no llego al modelo, asi que en el contador
+                    # de Google no existe.  Ver RequestBudget.refund.
+                    self.budget.refund(self.model)
+                    raise CredentialRejected(
+                        f"HTTP {response.status_code}: Google rechaza la "
+                        f"credencial. Esto NO es falta de cupo ni una caida "
+                        f"de Gemini: revisar GEMINI_API_KEY en .env. "
+                        f"{response.text[:400]}"
                     )
                 elif response.status_code >= 400:
                     raise GeminiError(f"HTTP {response.status_code}: {response.text}")

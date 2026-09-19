@@ -2,7 +2,12 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+# Cubre tambien .env.bak, .env.local y demas: una copia de seguridad del
+# .env hecha de paso lleva las claves dentro y con la regla anterior no
+# estaba ignorada.  La excepcion es la plantilla, que si se versiona.
 .env
+.env.*
+!.env.example
 
 # Imagenes reales de documentos: nunca entran al repositorio.
 # El conjunto de evaluacion solo puede contener casos sinteticos.

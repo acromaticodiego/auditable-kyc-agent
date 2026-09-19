@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import health, verifications
+from app.api import demo, health, verifications
 from app.db import engine
 from app.storage.models import ensure_schema
 
@@ -32,3 +32,6 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(verifications.router)
+# La pantalla va la ultima porque su ruta es "/" y no debe tapar nada.
+# Solo sirve respuestas que ya estan en cache: ver app/api/demo.py.
+app.include_router(demo.router)
