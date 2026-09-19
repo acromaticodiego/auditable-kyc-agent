@@ -41,6 +41,7 @@ from __future__ import annotations
 import io
 import uuid
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -74,6 +75,33 @@ PAREJAS = {
 PAREJAS_INVERSAS = {roto: (limpio, que) for limpio, (roto, que) in PAREJAS.items()}
 
 
+# Cuanto mide el lado largo de la vista previa que se guarda del
+# documento subido.  No es la imagen que se midio -esa ya cumplio su
+# papel y se descarta-, es solo para que quien mira la pantalla vea el
+# documento del que se esta hablando.
+#
+# 720 px sobre un original de 1012 siguen dejando leer un apellido
+# retocado, que es lo unico que hay que poder mirar de cerca, y bajan la
+# copia a unas decenas de kilobytes.  A 900 px la copia llegaba a pesar
+# mas que el PNG original cuando este venia limpio, que es absurdo para
+# algo que se ensena a 148 px de alto.
+LADO_VISTA_PREVIA = 720
+
+
+@dataclass(frozen=True)
+class Medicion:
+    """Lo que queda de un documento subido: sus senales y como se veia.
+
+    La vista previa no es un capricho estetico. La pantalla existe para
+    que un humano juzgue una decision, y juzgarla sin ver el documento es
+    justo lo que el agente hace -a el se le mandan solo numeros- pero no
+    lo que deberia hacer la persona que revisa.
+    """
+
+    senales: object
+    vistas: dict[str, bytes]
+
+
 # Las mediciones recien hechas, a la espera de que alguien decida si vale
 # la pena preguntarle al agente. Viven en memoria y se pierden al
 # reiniciar, que es justo lo que deben hacer: son de una sesion de demo,
@@ -81,15 +109,23 @@ PAREJAS_INVERSAS = {roto: (limpio, que) for limpio, (roto, que) in PAREJAS.items
 # guarda en Postgres.
 #
 # El tope existe para que una pantalla abierta toda una tarde no se coma
-# la memoria del contenedor con juegos de senales de documentos que nadie
-# va a volver a mirar.
-_MEDICIONES: OrderedDict[str, object] = OrderedDict()
-MAX_MEDICIONES = 32
+# la memoria del contenedor. Con las vistas previas dentro importa mas
+# que antes, asi que es mas corto.
+_MEDICIONES: OrderedDict[str, Medicion] = OrderedDict()
+MAX_MEDICIONES = 12
 
 
-def _recordar(senales) -> str:
+def _vista_previa(imagen) -> bytes:
+    copia = imagen.convert("RGB")
+    copia.thumbnail((LADO_VISTA_PREVIA, LADO_VISTA_PREVIA))
+    buffer = io.BytesIO()
+    copia.save(buffer, format="JPEG", quality=80)
+    return buffer.getvalue()
+
+
+def _recordar(senales, vistas: dict[str, bytes]) -> str:
     ficha = uuid.uuid4().hex
-    _MEDICIONES[ficha] = senales
+    _MEDICIONES[ficha] = Medicion(senales=senales, vistas=vistas)
     while len(_MEDICIONES) > MAX_MEDICIONES:
         _MEDICIONES.popitem(last=False)
     return ficha
@@ -227,6 +263,10 @@ def ver_caso(
     return {
         "caso": caso_id,
         "modelo": run.model,
+        "imagenes": {
+            "anverso": f"/demo/casos/{caso_id}/imagen/anverso",
+            "reverso": f"/demo/casos/{caso_id}/imagen/reverso",
+        },
         "linea_base": {
             "decision": base.decision.value,
             "acierta": base.decision is caso.expected_decision,
@@ -363,8 +403,19 @@ async def medir(
     base = decide_baseline(senales)
     en_cache = modelo.is_cached(build_prompt(senales), DECISION_RESPONSE_SCHEMA)
 
+    vistas = {
+        "anverso": _vista_previa(imagen_anverso),
+        "reverso": _vista_previa(imagen_reverso),
+    }
+    if imagen_selfie is not None:
+        vistas["selfie"] = _vista_previa(imagen_selfie)
+    ficha = _recordar(senales, vistas)
+
     return {
-        "ficha": _recordar(senales),
+        "ficha": ficha,
+        "imagenes": {
+            cara: f"/demo/mediciones/{ficha}/imagen/{cara}" for cara in vistas
+        },
         "senales": [_senal_a_json(s) for s in senales],
         "senales_totales": len(senales),
         "con_selfie": imagen_selfie is not None,
@@ -388,8 +439,8 @@ def decidir(
     herramientas de evaluacion, donde ver el plan dejo de lanzar la tanda
     despues de que verlo costara tres peticiones de veinte.
     """
-    senales = _MEDICIONES.get(ficha)
-    if senales is None:
+    medicion = _MEDICIONES.get(ficha)
+    if medicion is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             detail=(
@@ -399,6 +450,7 @@ def decidir(
             ),
         )
 
+    senales = medicion.senales
     run = run_agent(senales, modelo)
 
     if run.outcome is not RunOutcome.DECIDED:
@@ -417,7 +469,28 @@ def decidir(
         }
 
     expediente = _expediente(run, senales)
+    expediente["imagenes"] = {
+        cara: f"/demo/mediciones/{ficha}/imagen/{cara}" for cara in medicion.vistas
+    }
     expediente["decidio_el_agente"] = True
     expediente["desde_cache"] = run.from_cache
     expediente["cupo_restante"] = modelo.budget.remaining(modelo.model)
     return expediente
+
+
+@router.get(
+    "/demo/mediciones/{ficha}/imagen/{cara}",
+    summary="La vista previa del documento que se subio en esa medicion",
+)
+def imagen_de_la_medicion(ficha: str, cara: str) -> Response:
+    """Devuelve la copia reducida, nunca la imagen original.
+
+    La original se usa para medir y se tira: guardarla convertiria una
+    pantalla de demostracion en un almacen de documentos de identidad, que
+    es exactamente lo que el resto del sistema evita a proposito. `POST
+    /verificaciones` tampoco las guarda, solo su SHA-256.
+    """
+    medicion = _MEDICIONES.get(ficha)
+    if medicion is None or cara not in medicion.vistas:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="esa vista ya no esta")
+    return Response(content=medicion.vistas[cara], media_type="image/jpeg")

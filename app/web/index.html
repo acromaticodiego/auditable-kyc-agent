@@ -136,10 +136,26 @@
                   border: 1px solid var(--borde); }
   .accion.flojo:hover { color: var(--texto); border-color: var(--acento); }
 
-  aside table { font-size: 11.5px; }
-  aside td { padding: 4px 6px; }
+  aside table { font-size: 11.5px; margin-bottom: 4px; }
+  aside td { padding: 3px 6px; border-bottom: 1px solid rgba(43,49,61,.5); }
   aside .nom { color: var(--acento); font-family: ui-monospace, Consolas, monospace; }
+  aside .grupo { font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em;
+                 color: var(--tenue); font-weight: 650; margin: 12px 0 4px;
+                 padding-bottom: 3px; border-bottom: 1px solid var(--borde); }
+  aside .grupo:first-child { margin-top: 0; }
+  /* La fila se enciende cuando el agente se apoyo en ella. Es lo que ata
+     las dos columnas: a la izquierda lo que dijo, aqui lo que habia. */
+  aside tr.citada td { background: rgba(110,168,254,.11); }
+  aside tr.citada .nom { color: #a9caff; font-weight: 600; }
+  aside tr.citada td:first-child::before { content: "\2039 "; color: var(--acento); }
   .nodisp { color: var(--tenue); font-style: italic; }
+
+  .caras { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .caras figure { margin: 0; }
+  .caras img { display: block; max-height: 148px; width: auto; border-radius: 7px;
+               border: 1px solid var(--borde); background: var(--panel-2); }
+  .caras figcaption { font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+                      color: var(--tenue); margin-top: 3px; }
 
   #formulario { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
   #formulario label { font-size: 12px; color: var(--tenue); display: flex;
@@ -238,16 +254,54 @@ function pinta(valor) {
 /* Las señales viven en su propia columna y no debajo del veredicto: así se
    leen a la vez que las citas, que es la comparación que importa, y además
    dejan de empujar la decisión fuera de la pantalla. */
+const GRUPOS = {
+  quality: "Calidad de la captura",
+  mrz: "MRZ y sus dígitos de control",
+  ocr: "Lectura del anverso",
+  cross: "Cotejos anverso ↔ MRZ",
+  document: "El documento",
+  facial: "Comparación facial",
+};
+
 function pintaLateral(d) {
-  const filas = d.senales.map(s => `
-    <tr title="${s.descripcion}">
-      <td class="nom">${s.id}</td>
-      <td class="val">${s.disponible ? pinta(s.valor)
-          : '<span class="nodisp">n/d</span>'}</td>
-    </tr>`).join("");
-  document.getElementById("lateral").innerHTML =
-    `<h2>Las ${d.senales_totales} señales medidas</h2>
-     <table><tbody>${filas}</tbody></table>`;
+  // Las que el agente uso para justificarse. Se resaltan aquí para poder
+  // seguir cada cita hasta la medición de la que salió sin buscarla.
+  const citadas = new Set((d.fundamentos || []).map(f => f.senal));
+
+  let html = `<h2>Las ${d.senales_totales} señales medidas</h2>`;
+  let grupoActual = null;
+  let abierta = false;
+
+  for (const s of d.senales) {
+    const grupo = s.id.split(".")[0];
+    if (grupo !== grupoActual) {
+      if (abierta) html += "</tbody></table>";
+      html += `<div class="grupo">${GRUPOS[grupo] || grupo}</div><table><tbody>`;
+      grupoActual = grupo;
+      abierta = true;
+    }
+    html += `
+      <tr class="${citadas.has(s.id) ? "citada" : ""}" title="${s.descripcion}">
+        <td class="nom">${s.id.slice(grupo.length + 1)}</td>
+        <td class="val">${s.disponible ? pinta(s.valor)
+            : '<span class="nodisp">n/d</span>'}</td>
+      </tr>`;
+  }
+  if (abierta) html += "</tbody></table>";
+  document.getElementById("lateral").innerHTML = html;
+}
+
+/* El modelo no ve el documento; quien revisa la decisión sí debería. Sin
+   esto hay que descargar el PNG y abrirlo por fuera, que es justo lo que
+   una consola de revisión existe para evitar. */
+function bloqueCaras(d) {
+  if (!d.imagenes) return "";
+  const caras = Object.entries(d.imagenes).map(([cara, url]) => `
+    <figure>
+      <a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${cara}"></a>
+      <figcaption>${cara}</figcaption>
+    </figure>`).join("");
+  return `<div class="caras">${caras}</div>`;
 }
 
 function tablaFundamentos(d) {
@@ -362,7 +416,7 @@ async function abre(id) {
     cabecera(d, `esperado ${ETIQUETA[d.esperado] || d.esperado} &middot;
       ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} &middot;
       <code>${d.modelo}</code>`)
-    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueCaras(d)
     + `<div class="barra">
          ${gemelo}
          <a class="accion flojo" href="/demo/casos/${d.caso}/imagen/anverso">Descargar anverso</a>
@@ -433,7 +487,8 @@ async function medir(evento) {
         ${d.en_cache ? "Preguntar al agente — gratis" : "Preguntar al agente — gasta 1"}
       </button>
       <span>recibe esas ${d.senales_totales} señales como texto; no ve las imágenes</span>
-    </div>`;
+    </div>
+    ${bloqueCaras(d)}`;
   return false;
 }
 
@@ -469,7 +524,7 @@ async function decidir() {
     cabecera(d, `<code>${d.modelo}</code> &middot;
       ${d.desde_cache ? "servido desde caché" : "petición recién hecha"} &middot;
       quedan ${d.cupo_restante === null ? "sin tope" : d.cupo_restante}`)
-    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d);
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueCaras(d);
 }
 
 (async () => {

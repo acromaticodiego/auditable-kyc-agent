@@ -148,7 +148,7 @@ def test_decidir_sirve_de_cache_cuando_esas_senales_ya_se_preguntaron(api, docum
     # endpoint. No sirve reutilizar las del catalogo: un documento subido
     # se evalua contra la fecha de hoy y el catalogo contra una fija, asi
     # que los dos juegos de senales no coinciden.
-    senales = _MEDICIONES[cuerpo["ficha"]]
+    senales = _MEDICIONES[cuerpo["ficha"]].senales
     sembrador = _cliente(
         api.hechos["modelo"].cache.directory,
         lambda r: httpx.Response(
@@ -213,5 +213,47 @@ def test_no_se_pueden_descargar_las_imagenes_del_reservado(api):
     cliente = api()
 
     respuesta = cliente.get("/demo/casos/legitimo-limpio/imagen/anverso")
+
+    assert respuesta.status_code == 404
+
+
+def test_la_pantalla_ensena_el_documento_que_se_midio(api, documento):
+    """El modelo no ve la imagen; quien revisa la decision si deberia verla.
+
+    Sin esto hay que descargar el PNG y abrirlo por fuera, que es justo lo
+    que una consola de revision existe para evitar.
+    """
+    cliente = api()
+
+    cuerpo = _subir(cliente, documento)
+
+    assert set(cuerpo["imagenes"]) == {"anverso", "reverso"}
+    respuesta = cliente.get(cuerpo["imagenes"]["anverso"])
+    assert respuesta.status_code == 200
+    assert respuesta.headers["content-type"] == "image/jpeg"
+
+
+def test_no_se_guarda_el_documento_original_sino_una_copia_reducida(api, documento):
+    """Guardar el original convertiria la demo en un almacen de cedulas.
+
+    El resto del sistema evita eso a proposito: `POST /verificaciones` no
+    guarda las imagenes, solo su SHA-256. La pantalla no puede ser la
+    puerta de atras por la que si se quedan.
+    """
+    anverso_subido, _ = documento
+    cliente = api()
+
+    cuerpo = _subir(cliente, documento)
+    servida = cliente.get(cuerpo["imagenes"]["anverso"]).content
+
+    assert servida != anverso_subido
+    assert servida[:3] == b"\xff\xd8\xff"  # JPEG, no el PNG que se subio
+    assert len(servida) < len(anverso_subido)
+
+
+def test_la_vista_previa_de_una_medicion_que_ya_no_esta_da_404(api):
+    cliente = api()
+
+    respuesta = cliente.get("/demo/mediciones/noexiste/imagen/anverso")
 
     assert respuesta.status_code == 404
