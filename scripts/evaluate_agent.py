@@ -318,6 +318,14 @@ def main() -> int:
     )
     parser.add_argument("--modelo", default=settings.gemini_model)
     parser.add_argument(
+        "--gastar",
+        action="store_true",
+        help=(
+            "autoriza las peticiones. Sin esto la herramienta calcula el "
+            "plan, lo imprime y para sin tocar la API."
+        ),
+    )
+    parser.add_argument(
         "--simulacro",
         action="store_true",
         help=(
@@ -419,6 +427,29 @@ def main() -> int:
         print("  dentro del proyecto de Google. Cambiar de modelo cambia el sistema")
         print("  medido y hay que decirlo al publicar el numero.")
         return 1
+
+    # La puerta. Mirar lo que costaria una tanda tiene que ser gratis, y
+    # hasta ahora no lo era: este bloque imprimia el plan y seguia derecho
+    # a gastarlo, asi que la pregunta "¿cuanto cuesta esto?" solo se podia
+    # hacer pagandola. Se perdieron tres peticiones de veinte en un dia
+    # queriendo leer justamente estas lineas.
+    #
+    # Es una puerta y no una pregunta interactiva a proposito: las tandas
+    # se lanzan con `docker compose exec -T`, que no da terminal, y ahi un
+    # input() no pregunta nada, revienta con EOFError. Un flag funciona
+    # igual dentro y fuera del contenedor y deja rastro en el historial de
+    # quien autorizo el gasto.
+    if faltantes and not args.simulacro and not args.gastar:
+        print()
+        print(f"  PARADO: esto gastaria hasta {peor_caso} peticiones y no se ha")
+        print("  autorizado. El plan de arriba ya esta calculado, que era lo que")
+        print("  costaba verlo.")
+        print()
+        print("  Faltan por pedir: " + ", ".join(c.id for c in faltantes[:12]))
+        print()
+        print("  Para lanzarla de verdad, repetir anadiendo --gastar.")
+        print("  Para ensayar el arnes sin tocar la API, --simulacro.")
+        return 0
 
     datos = evaluar(casos, senales, modelo)
     informar(datos, split, nombre_del_modelo)
