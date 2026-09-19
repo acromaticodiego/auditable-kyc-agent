@@ -1,5 +1,7 @@
 # Agente de verificación de identidad (KYC)
 
+[![tests](https://github.com/acromaticodiego/auditable-kyc-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/acromaticodiego/auditable-kyc-agent/actions/workflows/tests.yml)
+
 Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 **aprobar**, **rechazar**, **escalar a revisión humana** o **solicitar un
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
@@ -15,8 +17,15 @@ con fundamentos que citan la señal concreta que los sostiene.
 > Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
 > línea base de reglas fijas, con **42 de 42 citas verificadas** y ninguna
 > señal adversa callada. Ese número es de calibración y no es el que se
-> publica: **el conjunto reservado sigue sin tocarse**, y esa medición se
-> hace una sola vez.
+> publica.
+>
+> **La medición del conjunto reservado está a medias.** Van 10 de sus 14
+> casos; los otros 4 no llegaron a medirse porque el proveedor devolvió 503
+> en dos de cada tres peticiones y se agotó el cupo del día. Lo medido no se
+> publica todavía: diez casos elegidos por cuáles sobrevivieron a una caída
+> no son una muestra de nada. Las respuestas obtenidas están en caché y el
+> prompt queda congelado desde ahora, así que completar los cuatro que
+> faltan da el mismo número que si hubiera salido de una sentada.
 
 ## La idea
 

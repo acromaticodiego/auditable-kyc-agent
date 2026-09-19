@@ -1,0 +1,82 @@
+# Corre la suite entera en cada push. Existe por un motivo concreto: el
+# valor de este proyecto no esta en que funcione, esta en que se pueda
+# comprobar, y una suite que nadie ve pasar es una afirmacion, no una
+# prueba.
+#
+# Se monta sobre el mismo docker compose que se usa en local y no sobre un
+# entorno propio del runner. No es comodidad: la imagen resuelve cosas que
+# costaron tiempo averiguar -tesseract con el paquete de espanol, fuentes
+# TrueType de verdad para que las cedulas sinteticas sean legibles, y una
+# sola build de OpenCV porque insightface arrastra la version con interfaz
+# grafica y revienta en una imagen slim- y rehacer todo eso en YAML seria
+# mantener dos entornos que se van separando en silencio. Aqui se prueba lo
+# que se despliega.
+
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    # Sin el numero de tests en el nombre: envejeceria solo y el primero
+    # que anadiera uno tendria que acordarse de venir aqui.
+    name: La suite entera sobre el stack completo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Los modelos de reconocimiento facial no estan en el repositorio a
+      # proposito. InsightFace baja el paquete buffalo_l la primera vez que
+      # se le pide una cara: 281 MB comprimidos que se expanden a 601 MB en
+      # disco. Medido en esta misma imagen, con el directorio vacio y el
+      # usuario sin privilegios: 171 segundos.
+      #
+      # De los cinco modelos del paquete solo se cargan dos -deteccion y
+      # reconocimiento-, pero el zip los trae todos, asi que el espacio se
+      # ocupa igual. Cachearlos ahorra esos tres minutos por ejecucion y
+      # quita de en medio una descarga externa que puede fallar.
+      - name: Recuperar los modelos de InsightFace de la cache
+        uses: actions/cache@v4
+        with:
+          path: modelos/insightface
+          key: insightface-buffalo_l-v1
+
+      # docker-compose.yml monta este directorio dentro del contenedor. Si
+      # no existe, Docker lo crea como root y el usuario sin privilegios de
+      # la imagen no puede escribir dentro, asi que la descarga falla con un
+      # permiso denegado que no dice nada de lo que pasa.
+      - name: Preparar el directorio de modelos
+        run: |
+          mkdir -p modelos/insightface
+          sudo chown -R 1000:1000 modelos/insightface
+
+      - name: Levantar el stack
+        run: docker compose up -d --build
+
+      - name: Esperar a que la API responda
+        run: |
+          for intento in $(seq 1 30); do
+            if curl -sf --max-time 5 http://localhost:8000/health; then
+              echo
+              echo "la API responde"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "la API no respondio a tiempo"
+          docker compose logs
+          exit 1
+
+      # Sin -T el cliente pide una terminal que en un runner no existe.
+      - name: Pasar la suite
+        run: docker compose exec -T api pytest -q
+
+      # Solo cuando algo falla: en verde no aporta nada y ensucia el
+      # registro. `if: failure()` se salta este paso en la ruta feliz.
+      - name: Registro de los contenedores si algo fallo
+        if: failure()
+        run: docker compose logs --tail=200
