@@ -166,6 +166,11 @@ lo que se descartó y por qué.
 - [ADR-0005](docs/adr/0005-la-similitud-facial-va-sin-umbral.md) — por qué
   la similitud facial se entrega cruda y el umbral no vive en el pipeline,
   y por qué el documento y la selfie se leen con criterios distintos.
+- [ADR-0006](docs/adr/0006-la-pantalla-no-decide-sola.md) — por qué la
+  pantalla sirve solo lo que ya está en caché, por qué aun así enseña
+  decisiones reales del modelo y no las del doble de ensayo que estaba a
+  una línea de distancia, y por qué del documento subido se guarda una
+  copia reducida y nunca el original.
 
 ## Métricas
 
