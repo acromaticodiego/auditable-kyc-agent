@@ -18,131 +18,186 @@
     --aviso: #fbbf24;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     background: var(--fondo);
     color: var(--texto);
-    font: 15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* La pagina entera no se desplaza nunca: lo que necesite sitio se lo
+       pide a su propia columna. Una herramienta que obliga a bajar para
+       ver el veredicto no se puede ensenar en una pantalla compartida. */
+    overflow: hidden;
   }
-  header {
-    padding: 22px 28px 18px;
-    border-bottom: 1px solid var(--borde);
-    background: var(--panel);
-  }
-  header h1 { margin: 0 0 6px; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
-  header p { margin: 0; color: var(--tenue); font-size: 13.5px; max-width: 90ch; }
-  .sello {
-    display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 999px;
-    background: rgba(74,222,128,.12); color: var(--ok);
-    border: 1px solid rgba(74,222,128,.3); font-size: 12px; font-weight: 600;
-  }
-  main { display: grid; grid-template-columns: 290px 1fr; gap: 0; align-items: start; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
-  nav { border-right: 1px solid var(--borde); padding: 16px 12px; min-height: calc(100vh - 120px); }
-  nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
-           color: var(--tenue); margin: 0 0 10px 8px; font-weight: 650; }
+  .app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 20px; border-bottom: 1px solid var(--borde); background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .sello {
+    padding: 2px 9px; border-radius: 999px; background: rgba(74,222,128,.12);
+    color: var(--ok); border: 1px solid rgba(74,222,128,.3);
+    font-size: 11.5px; font-weight: 600;
+  }
+  .ayuda {
+    margin-left: auto; font: inherit; font-size: 12px; cursor: pointer;
+    background: transparent; color: var(--tenue); border: 1px solid var(--borde);
+    border-radius: 7px; padding: 3px 10px;
+  }
+  .ayuda:hover { color: var(--texto); border-color: var(--acento); }
+
+  main {
+    display: grid; grid-template-columns: 236px minmax(0, 1fr) 328px;
+    min-height: 0; overflow: hidden;
+  }
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 210px minmax(0, 1fr); }
+    aside { display: none; }
+  }
+
+  nav, section, aside { min-height: 0; overflow-y: auto; }
+  nav { border-right: 1px solid var(--borde); padding: 10px 8px; }
+  aside { border-left: 1px solid var(--borde); padding: 12px 14px; }
+  section { padding: 16px 20px; }
+
+  nav h2, aside h2 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--tenue); margin: 0 0 8px 6px; font-weight: 650;
+  }
+  aside h2 { margin-left: 0; }
+
   .caso {
     display: block; width: 100%; text-align: left; cursor: pointer;
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
-    color: var(--texto); padding: 8px 10px; margin-bottom: 2px;
-    font: inherit; font-size: 13px; line-height: 1.35;
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
+    color: var(--texto); padding: 5px 9px; margin-bottom: 1px;
+    font: inherit; font-size: 12.5px; line-height: 1.3;
   }
   .caso:hover { background: var(--panel-2); }
   .caso[aria-current="true"] { background: var(--panel-2); border-color: var(--acento); }
-  .caso small { display: block; color: var(--tenue); font-size: 11.5px; margin-top: 2px; }
+  .caso small { display: block; color: var(--tenue); font-size: 10.5px; }
   .caso.frio { opacity: .4; cursor: not-allowed; }
+  .caso.subir { border-color: var(--acento); margin-bottom: 8px; font-weight: 600; }
 
-  section { padding: 22px 28px 60px; }
-  .cargando { color: var(--tenue); }
-
-  .cabecera { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .cabecera { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   .decision {
-    font-size: 22px; font-weight: 700; letter-spacing: -0.02em; padding: 4px 14px;
-    border-radius: 8px; border: 1px solid var(--borde); background: var(--panel-2);
+    font-size: 19px; font-weight: 700; letter-spacing: -0.02em; padding: 3px 12px;
+    border-radius: 7px; border: 1px solid var(--borde); background: var(--panel-2);
   }
   .decision.approve { color: var(--ok); border-color: rgba(74,222,128,.35); }
   .decision.reject { color: var(--mal); border-color: rgba(248,113,113,.35); }
   .decision.escalate_to_human, .decision.request_resubmission {
     color: var(--aviso); border-color: rgba(251,191,36,.35);
   }
-  .esperado { color: var(--tenue); font-size: 13px; }
-  .resumen { margin: 14px 0 26px; max-width: 95ch; color: #cfd6e4; }
+  .esperado { color: var(--tenue); font-size: 12.5px; }
+  .resumen { margin: 10px 0 12px; color: #cfd6e4; font-size: 13.5px; }
 
-  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .09em;
-       color: var(--tenue); margin: 26px 0 10px; font-weight: 650; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--borde);
-           vertical-align: top; }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
-       color: var(--tenue); font-weight: 650; }
-  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px;
-         color: var(--acento); }
-  .val { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
-  .si { color: var(--ok); font-weight: 650; white-space: nowrap; }
-  .no { color: var(--mal); font-weight: 650; white-space: nowrap; }
-  .peso { color: var(--tenue); font-size: 11.5px; text-transform: uppercase;
-          letter-spacing: .05em; }
-
-  .marcador { display: flex; gap: 22px; flex-wrap: wrap; margin: 4px 0 0;
-              padding: 12px 16px; background: var(--panel); border: 1px solid var(--borde);
-              border-radius: 10px; }
-  .marcador div { font-size: 12.5px; color: var(--tenue); }
-  .marcador b { display: block; font-size: 18px; color: var(--texto); font-weight: 650; }
-
-  .base { margin: 14px 0 0; padding: 11px 15px; border-radius: 9px; font-size: 13.5px;
+  .base { padding: 8px 12px; border-radius: 8px; font-size: 12.5px;
           border: 1px solid var(--borde); background: var(--panel); color: var(--tenue); }
   .base.gana { border-color: rgba(110,168,254,.45); background: rgba(110,168,254,.07);
                color: #cfd6e4; }
   .base b { color: var(--texto); }
 
-  .romper { margin: 26px 0 0; padding: 16px 18px; border: 1px dashed var(--borde);
-            border-radius: 10px; background: var(--panel); }
-  .caso.subir { border-color: var(--acento); margin-bottom: 10px; font-weight: 600; }
-  #formulario { display: flex; flex-direction: column; gap: 10px; max-width: 460px; }
-  #formulario label { font-size: 13px; color: var(--tenue); display: flex;
-                      flex-direction: column; gap: 4px; }
-  #formulario input[type=file] { font: inherit; font-size: 12.5px; color: var(--texto); }
-  #formulario button { align-self: flex-start; margin-top: 4px; }
-  a.accion { display: inline-block; text-decoration: none; margin-right: 8px; }
+  .marcador { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0;
+              padding: 8px 12px; background: var(--panel); border: 1px solid var(--borde);
+              border-radius: 8px; }
+  .marcador div { font-size: 11px; color: var(--tenue); }
+  .marcador b { display: block; font-size: 15px; color: var(--texto); font-weight: 650; }
 
-  .romper p { margin: 0 0 12px; font-size: 13.5px; color: var(--tenue); max-width: 80ch; }
-  button.accion {
-    font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
-    background: var(--acento); color: #0b1020; border: 0; border-radius: 8px;
-    padding: 8px 16px;
+  h3 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+       color: var(--tenue); margin: 14px 0 6px; font-weight: 650; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borde);
+           vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--tenue); font-weight: 650; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+         color: var(--acento); }
+  .val { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px;
+         white-space: nowrap; }
+  .si { color: var(--ok); font-weight: 650; white-space: nowrap; }
+  .no { color: var(--mal); font-weight: 650; white-space: nowrap; }
+  .peso { color: var(--tenue); font-size: 10px; text-transform: uppercase;
+          letter-spacing: .04em; }
+
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+           margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--borde); }
+  .barra span { font-size: 11.5px; color: var(--tenue); }
+  .accion {
+    font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    background: var(--acento); color: #0b1020; border: 0; border-radius: 7px;
+    padding: 6px 13px; text-decoration: none; display: inline-block;
   }
-  button.accion:hover { filter: brightness(1.08); }
+  .accion:hover { filter: brightness(1.08); }
+  .accion.flojo { background: transparent; color: var(--tenue);
+                  border: 1px solid var(--borde); }
+  .accion.flojo:hover { color: var(--texto); border-color: var(--acento); }
 
-  details { margin-top: 26px; }
-  summary { cursor: pointer; color: var(--tenue); font-size: 13px; }
+  aside table { font-size: 11.5px; }
+  aside td { padding: 4px 6px; }
+  aside .nom { color: var(--acento); font-family: ui-monospace, Consolas, monospace; }
   .nodisp { color: var(--tenue); font-style: italic; }
+
+  #formulario { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+  #formulario label { font-size: 12px; color: var(--tenue); display: flex;
+                      flex-direction: column; gap: 3px; }
+  #formulario input[type=file] { font: inherit; font-size: 11.5px; color: var(--texto); }
+  .nota { font-size: 12.5px; color: var(--tenue); max-width: 78ch; margin: 0 0 12px; }
+  .nota a { color: var(--acento); }
+  .cargando { color: var(--tenue); font-size: 13px; }
   .error { color: var(--mal); background: rgba(248,113,113,.08);
-           border: 1px solid rgba(248,113,113,.3); padding: 14px 16px; border-radius: 10px; }
+           border: 1px solid rgba(248,113,113,.3); padding: 10px 12px;
+           border-radius: 8px; font-size: 12.5px; }
+
+  dialog {
+    max-width: 640px; border: 1px solid var(--borde); border-radius: 12px;
+    background: var(--panel); color: var(--texto); padding: 22px 24px;
+    font: inherit; font-size: 13.5px; line-height: 1.6;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog p { margin: 0 0 12px; }
+  dialog p:last-of-type { margin-bottom: 18px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Agente de verificación de identidad — expediente auditable</h1>
-  <p>
-    El modelo no ve las imágenes. Código normal mide las señales —28 sobre la
-    cédula; 29 cuando además hay selfie, con la comparación facial— y al modelo
-    se le manda solo esa lista como texto. Estos casos son de documento, sin
-    selfie. Lo que se enseña abajo no es lo que el agente dijo, sino
-    <strong>si era verdad</strong>: cada fundamento cita una señal con su valor
-    y ese valor se contrasta, uno a uno, contra lo que de verdad se midió.
-  </p>
-  <span class="sello" id="sello">Decisiones reales, servidas desde caché · no gasta cupo</span>
-</header>
+<div class="app">
+  <header>
+    <h1>Agente de verificación de identidad</h1>
+    <span class="sello" id="sello">cargando…</span>
+    <button class="ayuda" onclick="document.getElementById('comofunciona').showModal()">
+      ¿Cómo funciona?
+    </button>
+  </header>
+  <main>
+    <nav>
+      <h2>Casos</h2>
+      <div id="lista"></div>
+    </nav>
+    <section id="panel"></section>
+    <aside id="lateral"></aside>
+  </main>
+</div>
 
-<main>
-  <nav>
-    <h2>Casos de calibración</h2>
-    <div id="lista"><p class="cargando">Cargando…</p></div>
-  </nav>
-  <section id="panel"><p class="cargando">Elige un caso.</p></section>
-</main>
+<dialog id="comofunciona">
+  <p>
+    <strong>El modelo no ve las imágenes.</strong> Código normal mide las señales
+    —28 sobre la cédula; 29 cuando además hay selfie, con la comparación facial—
+    y al modelo se le manda solo esa lista como texto.
+  </p>
+  <p>
+    Lo que se enseña no es lo que el agente dijo, sino <strong>si era verdad</strong>:
+    cada fundamento cita una señal con su valor, y ese valor se contrasta uno a uno
+    contra lo que de verdad se midió.
+  </p>
+  <p>
+    Debajo de cada decisión aparece qué habrían decidido unas reglas fijas ante esas
+    mismas señales. Ahí se ve dónde el agente aporta algo y dónde no.
+  </p>
+  <button class="accion" onclick="this.closest('dialog').close()">Entendido</button>
+</dialog>
 
 <script>
 const ETIQUETA = {
@@ -168,35 +223,31 @@ let casos = [];
 let ultimaMedicion = null;
 
 function pinta(valor) {
-  if (valor === null || valor === undefined) return '<span class="nodisp">no disponible</span>';
-  if (typeof valor === "boolean") return valor ? "si" : "no";
+  if (valor === null || valor === undefined) return '<span class="nodisp">n/d</span>';
+  if (typeof valor === "boolean") return valor ? "sí" : "no";
   if (typeof valor === "number") return Number.isInteger(valor) ? valor : valor.toFixed(3);
-  // El modelo cita los booleanos como la cadena "True"/"False" y la senal
-  // real es un booleano de verdad. El auditor los trata como iguales, asi
-  // que pintarlos distinto ensenaria una discrepancia que no existe justo
-  // en la tabla cuyo trabajo es que las dos columnas se comparen de un
-  // vistazo.
+  // El modelo cita los booleanos como la cadena "True"/"False" y la señal
+  // real es un booleano de verdad. El auditor los trata como iguales, así
+  // que pintarlos distinto enseñaría una discrepancia que no existe justo
+  // en la tabla cuyo trabajo es que las dos columnas se comparen de un vistazo.
   const texto = String(valor);
-  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "si" : "no";
+  if (/^(true|false)$/i.test(texto)) return texto.toLowerCase() === "true" ? "sí" : "no";
   return texto;
 }
 
-function bloqueSenales(d) {
+/* Las señales viven en su propia columna y no debajo del veredicto: así se
+   leen a la vez que las citas, que es la comparación que importa, y además
+   dejan de empujar la decisión fuera de la pantalla. */
+function pintaLateral(d) {
   const filas = d.senales.map(s => `
-    <tr>
-      <td><code>${s.id}</code></td>
-      <td>${s.descripcion}</td>
+    <tr title="${s.descripcion}">
+      <td class="nom">${s.id}</td>
       <td class="val">${s.disponible ? pinta(s.valor)
-          : '<span class="nodisp">' + (s.motivo_no_disponible || "no disponible") + '</span>'}</td>
+          : '<span class="nodisp">n/d</span>'}</td>
     </tr>`).join("");
-  return `
-    <details>
-      <summary>Ver las ${d.senales_totales} señales que se midieron</summary>
-      <table>
-        <thead><tr><th>Señal</th><th>Qué mide</th><th>Valor</th></tr></thead>
-        <tbody>${filas}</tbody>
-      </table>
-    </details>`;
+  document.getElementById("lateral").innerHTML =
+    `<h2>Las ${d.senales_totales} señales medidas</h2>
+     <table><tbody>${filas}</tbody></table>`;
 }
 
 function tablaFundamentos(d) {
@@ -207,15 +258,15 @@ function tablaFundamentos(d) {
       <td class="val">${pinta(f.valor_citado)}</td>
       <td class="val">${pinta(f.valor_real)}</td>
       <td class="${f.verificada ? "si" : "no"}">
-        ${f.verificada ? "\u2713 verificada" : "\u2717 " + (ESTADO[f.estado] || f.estado)}
+        ${f.verificada ? "✓" : "✗ " + (ESTADO[f.estado] || f.estado)}
       </td>
     </tr>`).join("");
   return `
     <h3>Por qué lo decidió, y si lo que dijo era cierto</h3>
     <table>
       <thead><tr>
-        <th>Señal</th><th>Lo que argumentó</th><th>Valor citado</th>
-        <th>Valor real</th><th>Contraste</th>
+        <th>Señal</th><th>Lo que argumentó</th><th>Citó</th>
+        <th>Real</th><th>Contraste</th>
       </tr></thead>
       <tbody>${filas}</tbody>
     </table>`;
@@ -225,29 +276,27 @@ function bloqueMarcador(d) {
   return `
     <div class="marcador">
       <div><b>${d.auditoria.validas}/${d.auditoria.citas}</b>citas verificadas</div>
-      <div><b>${d.auditoria.fiel ? "si" : "no"}</b>fiel (ninguna cita falsa)</div>
-      <div><b>${d.auditoria.completa ? "si" : "no"}</b>completa (no calló nada adverso)</div>
-      <div><b>${d.senales_totales}</b>señales medidas</div>
+      <div><b>${d.auditoria.fiel ? "sí" : "no"}</b>fiel</div>
+      <div><b>${d.auditoria.completa ? "sí" : "no"}</b>completa</div>
+      <div><b>${d.senales_totales}</b>señales</div>
     </div>`;
 }
 
-// Sin esto la pantalla ensena que el agente acierta, pero no que acierte
-// donde las reglas fijas no llegan, que es la afirmacion que sostiene el
+// Sin esto la pantalla enseña que el agente acierta, pero no que acierte
+// donde las reglas fijas no llegan, que es la afirmación que sostiene el
 // proyecto. Las reglas no cuestan cupo: se calculan siempre.
 function bloqueBase(d) {
   const b = d.linea_base;
   const discrepan = b.decision !== d.decision;
   const nota = b.acierta === null
-    ? "Aquí no hay etiqueta contra la que comparar: este documento lo has traído tú, así que nadie anotó de antemano qué debería salir."
+    ? "Aquí no hay etiqueta contra la que comparar: el documento lo has traído tú."
     : (b.acierta ? "y habría acertado igual."
-       : "<b>y se habría equivocado.</b> Aquí es donde el agente gana: no por decidir mejor en general, sino por combinar señales que un umbral no sabe pesar juntas.");
+       : "<b>y se habría equivocado.</b> Aquí es donde el agente gana: por combinar señales que un umbral no sabe pesar juntas.");
   return `
     <div class="base ${discrepan && b.acierta === false ? "gana" : ""}">
       ${discrepan
-        ? `Ante estas mismas señales, la línea base de reglas fijas habría dicho
-           <b>${ETIQUETA[b.decision] || b.decision}</b> &mdash; ${nota}`
-        : `La línea base de reglas fijas decide lo mismo aquí:
-           <b>${ETIQUETA[b.decision] || b.decision}</b>.`}
+        ? `Las reglas fijas habrían dicho <b>${ETIQUETA[b.decision] || b.decision}</b> &mdash; ${nota}`
+        : `Las reglas fijas deciden lo mismo aquí: <b>${ETIQUETA[b.decision] || b.decision}</b>.`}
     </div>`;
 }
 
@@ -269,7 +318,7 @@ function pintaLista(actual) {
   const subir = document.createElement("button");
   subir.className = "caso subir";
   subir.setAttribute("aria-current", actual === "__subir__" ? "true" : "false");
-  subir.innerHTML = "Subir un documento<small>en vivo, con tu propio fichero</small>";
+  subir.innerHTML = "Subir un documento<small>en vivo, tu propio fichero</small>";
   subir.onclick = () => abreSubida();
   lista.appendChild(subir);
 
@@ -300,34 +349,26 @@ async function abre(id) {
   const d = await respuesta.json();
 
   const rompiendo = d.pareja && d.pareja.sentido === "romper";
-  const romper = d.pareja ? `
-    <div class="romper">
-      <p>
-        ${rompiendo
-          ? `Este documento tiene en el catálogo su gemelo con <strong>${d.pareja.que_cambia}</strong>
-             retocado: todo lo demás es idéntico. Al saltar, mira cómo el cotejo de ese campo
-             pasa a <code>mismatch</code> y la decisión se mueve detrás.`
-          : `Este es el documento con <strong>${d.pareja.que_cambia}</strong> retocado.
-             Vuelve al intacto y verás desaparecer el <code>mismatch</code>.`}
-      </p>
-      <button class="accion" onclick="abre('${d.pareja.caso}')">
-        ${rompiendo ? "Romper el documento \u2192" : "\u2190 Volver al documento intacto"}
-      </button>
-    </div>` : "";
+  const gemelo = d.pareja ? `
+    <button class="accion" onclick="abre('${d.pareja.caso}')">
+      ${rompiendo ? "Romper " + d.pareja.que_cambia + " →"
+                  : "← Volver al documento intacto"}
+    </button>
+    <span>${rompiendo
+      ? "el mismo documento con ese campo retocado; todo lo demás es idéntico"
+      : "este lleva " + d.pareja.que_cambia + " retocado"}</span>` : "";
 
   panel.innerHTML =
     cabecera(d, `esperado ${ETIQUETA[d.esperado] || d.esperado} &middot;
       ${d.acierta ? '<span class="si">coincide</span>' : '<span class="no">no coincide</span>'} &middot;
-      modelo <code>${d.modelo}</code>`)
-    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + romper
-    + `<div class="romper">
-         <p>¿Y si en vez de elegir de una lista traes tu propio documento? Descarga
-            este par, retócalo en cualquier editor y súbelo.</p>
-         <a class="accion" href="/demo/casos/${d.caso}/imagen/anverso">Descargar anverso</a>
-         <a class="accion" href="/demo/casos/${d.caso}/imagen/reverso">Descargar reverso</a>
-         <button class="accion" onclick="abreSubida()">Ir a subir \u2192</button>
-       </div>`
-    + bloqueSenales(d);
+      <code>${d.modelo}</code>`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d)
+    + `<div class="barra">
+         ${gemelo}
+         <a class="accion flojo" href="/demo/casos/${d.caso}/imagen/anverso">Descargar anverso</a>
+         <a class="accion flojo" href="/demo/casos/${d.caso}/imagen/reverso">Descargar reverso</a>
+       </div>`;
+  pintaLateral(d);
 }
 
 /* ---------- la subida: un documento traído por quien mira ---------- */
@@ -335,36 +376,32 @@ async function abre(id) {
 function abreSubida() {
   pintaLista("__subir__");
   history.replaceState(null, "", "#subir");
+  document.getElementById("lateral").innerHTML = "";
   document.getElementById("panel").innerHTML = `
     <h3 style="margin-top:0">Tu propio documento</h3>
-    <div class="romper">
-      <p>
-        Medir es <strong>gratis y se puede repetir</strong>: el OCR, los dígitos de
-        control de la MRZ, los cotejos, la nitidez y las caras son código normal y
-        no piden nada a ningún modelo. Preguntarle al agente sí cuesta una petición
-        de las veinte del día, así que va aparte y te dice antes lo que gasta.
-      </p>
-      <p>
-        ¿No tienes una cédula a mano? Descarga un par sintético, ábrelo en cualquier
-        editor, cámbiale una letra al apellido y súbelo:
-        <a href="/demo/casos/legitimo-torcido/imagen/anverso">anverso</a> &middot;
-        <a href="/demo/casos/legitimo-torcido/imagen/reverso">reverso</a>
-      </p>
-      <form id="formulario" onsubmit="return medir(event)">
-        <label>Anverso <input type="file" name="anverso" accept="image/*" required></label>
-        <label>Reverso <input type="file" name="reverso" accept="image/*" required></label>
-        <label>Selfie <small>(opcional; añade la comparación facial)</small>
-               <input type="file" name="selfie" accept="image/*"></label>
-        <button class="accion" type="submit">Medir las señales &mdash; gratis</button>
-      </form>
-    </div>
+    <p class="nota">
+      Medir es gratis y se puede repetir: el OCR, los dígitos de control de la MRZ,
+      los cotejos y la nitidez son código normal. Preguntarle al agente sí cuesta
+      una petición, así que va aparte y te dice antes lo que gasta.
+      ¿No tienes una cédula a mano? Descarga un par sintético, cámbiale una letra
+      al apellido en cualquier editor y súbelo:
+      <a href="/demo/casos/legitimo-torcido/imagen/anverso">anverso</a> &middot;
+      <a href="/demo/casos/legitimo-torcido/imagen/reverso">reverso</a>
+    </p>
+    <form id="formulario" onsubmit="return medir(event)">
+      <label>Anverso <input type="file" name="anverso" accept="image/*" required></label>
+      <label>Reverso <input type="file" name="reverso" accept="image/*" required></label>
+      <label>Selfie <small>(opcional; añade la comparación facial)</small>
+             <input type="file" name="selfie" accept="image/*"></label>
+      <button class="accion" type="submit">Medir las señales &mdash; gratis</button>
+    </form>
     <div id="resultado"></div>`;
 }
 
 async function medir(evento) {
   evento.preventDefault();
   const salida = document.getElementById("resultado");
-  salida.innerHTML = '<p class="cargando">Leyendo el documento: OCR, MRZ, cotejos, nitidez y caras. Puede tardar unos segundos…</p>';
+  salida.innerHTML = '<p class="cargando">Leyendo el documento: OCR, MRZ, cotejos, nitidez y caras…</p>';
 
   const datos = new FormData(document.getElementById("formulario"));
   const respuesta = await fetch("/demo/medir", { method: "POST", body: datos });
@@ -375,35 +412,28 @@ async function medir(evento) {
   }
   const d = await respuesta.json();
   ultimaMedicion = d;
+  pintaLateral(d);
 
   const cupo = d.cupo_restante === null ? "sin tope" : d.cupo_restante;
-  const coste = d.en_cache
-    ? "Esta combinación de señales ya está en caché: preguntarle <strong>no cuesta nada</strong>."
-    : `Preguntarle <strong>gasta 1 petición</strong> de las que quedan hoy (<strong>${cupo}</strong>).`;
-
   salida.innerHTML = `
     <div class="marcador">
       <div><b>${d.senales_totales}</b>señales medidas</div>
       <div><b>${d.con_selfie ? "sí" : "no"}</b>con selfie</div>
       <div><b>${ETIQUETA[d.linea_base.decision] || d.linea_base.decision}</b>dirían las reglas fijas</div>
-      <div><b>${cupo}</b>peticiones de cupo hoy</div>
+      <div><b>${cupo}</b>cupo hoy</div>
     </div>
     <div class="base">
-      Hasta aquí no se ha pedido nada a ningún modelo. Lo de arriba lo decide
-      código normal: umbrales y comparaciones. ${coste}
+      Hasta aquí no se ha pedido nada a ningún modelo: lo de arriba lo decide código
+      normal. ${d.en_cache
+        ? "Estas señales ya se preguntaron: hacerlo otra vez <b>no cuesta nada</b>."
+        : `Preguntarle al agente <b>gasta 1 petición</b> de las ${cupo} que quedan hoy.`}
     </div>
-    <div class="romper">
-      <p>
-        El agente recibe esas ${d.senales_totales} señales como texto &mdash;no ve las
-        imágenes&mdash; y tiene que decidir y justificarse citando valores concretos,
-        que después se contrastan uno a uno contra lo que de verdad se midió.
-      </p>
+    <div class="barra">
       <button class="accion" onclick="decidir()">
-        ${d.en_cache ? "Preguntar al agente \u2014 gratis, está en caché"
-                     : "Preguntar al agente \u2014 gasta 1 petición"}
+        ${d.en_cache ? "Preguntar al agente — gratis" : "Preguntar al agente — gasta 1"}
       </button>
-    </div>
-    ${bloqueSenales(d)}`;
+      <span>recibe esas ${d.senales_totales} señales como texto; no ve las imágenes</span>
+    </div>`;
   return false;
 }
 
@@ -420,27 +450,26 @@ async function decidir() {
     return;
   }
   const d = await respuesta.json();
+  pintaLateral(d);
 
   if (!d.decidio_el_agente) {
-    // No es un fallo de la pantalla: es el sistema haciendo lo que esta
-    // disenado para hacer cuando el proveedor no contesta.
+    // No es un fallo de la pantalla: es el sistema haciendo lo que está
+    // diseñado para hacer cuando el proveedor no contesta.
     salida.innerHTML = `
       <div class="base gana">
-        <b>El agente no contestó</b> (${d.motivo}), y el sistema decidió igualmente:
-        <b>${ETIQUETA[d.decision] || d.decision}</b>.
-        Ni aprueba ni rechaza. Aprobar sin haber leído la evidencia es el fallo caro
-        de un KYC, y rechazar acusaría a una persona de suplantación porque se cayó
-        una API. Escalar es admitir que el sistema no sabe, que es lo único cierto
-        en ese momento.
-      </div>
-      <div class="error">${(d.error || "").slice(0, 400)}</div>
-      ${bloqueSenales(d)}`;
+        <b>El agente no contestó</b> (${d.motivo}) y el sistema decidió igualmente:
+        <b>${ETIQUETA[d.decision] || d.decision}</b>. Ni aprueba ni rechaza. Aprobar sin
+        haber leído la evidencia es el fallo caro de un KYC, y rechazar acusaría a
+        alguien de suplantación porque se cayó una API.
+      </div>`;
     return;
   }
 
   salida.innerHTML =
-    cabecera(d, `modelo <code>${d.modelo}</code>${d.desde_cache ? " &middot; servido desde caché" : " &middot; petición recién hecha"}`)
-    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d) + bloqueSenales(d);
+    cabecera(d, `<code>${d.modelo}</code> &middot;
+      ${d.desde_cache ? "servido desde caché" : "petición recién hecha"} &middot;
+      quedan ${d.cupo_restante === null ? "sin tope" : d.cupo_restante}`)
+    + bloqueBase(d) + bloqueMarcador(d) + tablaFundamentos(d);
 }
 
 (async () => {
@@ -448,7 +477,7 @@ async function decidir() {
   const d = await r.json();
   casos = d.casos;
   document.getElementById("sello").textContent =
-    `Decisiones reales de ${d.modelo} \u00b7 medir es gratis; preguntar al agente se autoriza aparte`;
+    `${d.modelo} · medir es gratis; preguntar se autoriza aparte`;
   const inicial = location.hash.slice(1);
   if (inicial === "subir") { abreSubida(); return; }
   pintaLista(null);
