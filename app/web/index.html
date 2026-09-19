@@ -711,10 +711,61 @@ async function medir(evento) {
       <button class="accion" onclick="decidir()">
         ${d.en_cache ? "Preguntar al agente — gratis" : "Preguntar al agente — gasta 1"}
       </button>
-      <span>recibe esas ${d.senales_totales} señales como texto; no ve las imágenes</span>
+      <button class="accion flojo" onclick="copiaResumen()">Copiar resumen</button>
+      <span id="copiado">recibe esas ${d.senales_totales} señales como texto; no ve las imágenes</span>
     </div>
     ${bloqueCaras(d)}`;
   return false;
+}
+
+/* Un resumen corto y pegable de la ultima medicion.
+   Existe por una razon practica: cuando una captura sale mal, lo que hace
+   falta para saber por que son ocho valores, y transcribirlos a mano de
+   una pantalla con veintinueve senales es donde se pierden las sesiones.
+   No copia ninguna imagen: solo numeros y el veredicto de las reglas. */
+function copiaResumen() {
+  if (!ultimaMedicion) return;
+  const d = ultimaMedicion;
+  const s = Object.fromEntries(d.senales.map(x => [x.id, x]));
+  const v = id => {
+    const x = s[id];
+    if (!x) return "(no existe)";
+    return x.disponible ? String(x.valor) : `NO DISPONIBLE (${x.motivo_no_disponible})`;
+  };
+
+  const lineas = [
+    `senales        ${d.senales_totales}   con selfie: ${d.con_selfie ? "si" : "no"}`,
+    `reglas fijas   ${d.linea_base.decision}`,
+    "",
+    `mrz.readable        ${v("mrz.readable")}`,
+    `mrz.checks_ok       ${v("mrz.checks_ok")}`,
+    `mrz.failed_checks   ${v("mrz.failed_checks")}`,
+    `mrz.repaired        ${v("mrz.repaired")}`,
+    "",
+    ...Object.keys(s).filter(id => id.startsWith("cross."))
+      .map(id => `${id.padEnd(20)}${v(id)}`),
+    "",
+    `quality.front_sharpness  ${v("quality.front_sharpness")}`,
+    `quality.back_sharpness   ${v("quality.back_sharpness")}`,
+    `quality.front_glare      ${v("quality.front_glare")}`,
+    `ocr.fields_missing       ${v("ocr.fields_missing")}`,
+    `facial.similarity        ${v("facial.similarity")}`,
+  ];
+  const texto = lineas.join("\n");
+
+  const aviso = document.getElementById("copiado");
+  navigator.clipboard.writeText(texto).then(
+    () => { aviso.textContent = "resumen copiado al portapapeles"; },
+    // El portapapeles tambien exige contexto seguro, y puede fallar. Si
+    // no se puede copiar se ensena el texto para poder seleccionarlo a
+    // mano, que es peor pero no deja a nadie tirado.
+    () => {
+      aviso.textContent = "no se pudo copiar; el resumen esta abajo";
+      document.getElementById("resultado").insertAdjacentHTML(
+        "beforeend",
+        `<pre style="font-size:11.5px;white-space:pre-wrap;border:1px solid var(--borde);
+           border-radius:8px;padding:10px;margin-top:10px">${texto}</pre>`);
+    });
 }
 
 async function decidir() {
