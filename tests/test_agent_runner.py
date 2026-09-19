@@ -276,3 +276,23 @@ def test_una_vuelta_sin_decision_no_es_completa_ni_incompleta(tmp_path):
     assert run.outcome is RunOutcome.MALFORMED
     assert run.completeness is None
     assert not run.complete
+
+
+def test_una_credencial_rechazada_se_distingue_de_la_api_caida(tmp_path):
+    """Las dos escalan a un humano, pero no se arreglan igual.
+
+    `CredentialRejected` hereda de `GeminiError`, que es lo que produce
+    UNAVAILABLE. Si el orden de los `except` se invirtiera, un 401 saldria
+    como "el proveedor no respondio" y la tanda seguiria adelante
+    repitiendo el mismo fallo una vez por caso, ademas de hacer perder el
+    rato buscando una caida de Gemini que no existe.
+    """
+    run = run_agent(
+        senales(),
+        cliente(tmp_path, '{"error": {"code": 401}}', status=401),
+    )
+
+    assert run.outcome is RunOutcome.BAD_CREDENTIAL
+    assert run.outcome is not RunOutcome.UNAVAILABLE
+    assert run.effective_decision is DecisionKind.ESCALATE_TO_HUMAN
+    assert run.decision is None

@@ -38,6 +38,7 @@ from pydantic import ValidationError
 
 from app.agent.budget import BudgetExhausted
 from app.agent.gemini import (
+    CredentialRejected,
     GeminiClient,
     GeminiError,
     QuotaExhausted,
@@ -59,7 +60,7 @@ FALLBACK_DECISION = DecisionKind.ESCALATE_TO_HUMAN
 class RunOutcome(str, Enum):
     """Como acabo la vuelta del agente.
 
-    Se distinguen cuatro finales en vez de un booleano porque la reaccion
+    Se distinguen cinco finales en vez de un booleano porque la reaccion
     a cada uno es distinta, y porque mezclarlos borraria la diferencia
     entre "el modelo razona mal" y "el modelo no contesto", que es la
     diferencia que hay que poder informar.
@@ -78,6 +79,11 @@ class RunOutcome(str, Enum):
     # PARARSE aqui: seguir con los casos que faltan solo gastaria tiempo
     # produciendo el mismo error veinte veces.
     OUT_OF_QUOTA = "out_of_quota"
+    # Google no acepta la credencial.  Tambien para la tanda, pero se
+    # separa del cupo porque lo que hay que hacer es distinto: el cupo
+    # vuelve solo a medianoche del Pacifico y esto no vuelve nunca hasta
+    # que alguien corrija el .env.
+    BAD_CREDENTIAL = "bad_credential"
 
 
 @dataclass(frozen=True)
@@ -147,6 +153,11 @@ def run_agent(signals: SignalSet, client: GeminiClient) -> AgentRun:
 
     try:
         response = client.generate_json(prompt, DECISION_RESPONSE_SCHEMA)
+    except CredentialRejected as error:
+        # Antes que GeminiError, del que hereda: si no, una credencial
+        # rechazada saldria como UNAVAILABLE y la tanda seguiria adelante
+        # repitiendo el mismo 401 una vez por caso.
+        return failed(RunOutcome.BAD_CREDENTIAL, str(error))
     except (QuotaExhausted, BudgetExhausted) as error:
         return failed(RunOutcome.OUT_OF_QUOTA, str(error))
     except GeminiError as error:

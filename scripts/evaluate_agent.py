@@ -133,6 +133,18 @@ def evaluar(
 
         run = run_agent(conjunto, modelo)
 
+        if run.outcome is RunOutcome.BAD_CREDENTIAL:
+            # Se para por el mismo motivo que con el cupo, pero el consejo
+            # es el contrario: aqui no sirve esperar a manana.
+            print()
+            print(f"Google rechaza la credencial en {caso.id}. Se para la tanda.")
+            print("  Revisar GEMINI_API_KEY en .env. Ojo: la variable se inyecta")
+            print("  al CREAR el contenedor, asi que despues hay que rehacerlo")
+            print("  con `docker compose up -d --force-recreate api`.")
+            print("  " + (run.error or "")[:300])
+            interrumpida = True
+            break
+
         if run.outcome is RunOutcome.OUT_OF_QUOTA:
             print()
             print(f"Se acabo el cupo en {caso.id}. Se para la tanda.")

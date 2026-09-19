@@ -78,6 +78,20 @@ def main() -> int:
         print()
         print("El modelo contesta. La respuesta queda en cache, asi que la tanda")
         print("posterior no vuelve a pagar este caso.")
+    elif run.outcome is RunOutcome.BAD_CREDENTIAL:
+        # El diagnostico correcto aqui vale una sesion: con el mensaje
+        # generico de abajo se concluye que Gemini esta caido y se van a
+        # mirar los modelos, cuando lo que pasa es que la clave no vale.
+        print(f"error:     {(run.error or '')[:400]}")
+        print()
+        print("La credencial no vale. Esto NO dice nada sobre si Gemini responde")
+        print("hoy ni sobre el cupo, que sigue intacto: la peticion no llego al")
+        print("modelo y no se ha contado.")
+        print()
+        print("  1. Poner una clave de Google AI Studio en .env (aistudio.google.com/apikey).")
+        print("  2. Rehacer el contenedor: docker compose up -d --force-recreate api.")
+        print("     Editar .env no basta, la variable se inyecta al crearlo.")
+        print("  3. Repetir esta sonda.")
     else:
         print(f"error:     {(run.error or '')[:400]}")
         print()

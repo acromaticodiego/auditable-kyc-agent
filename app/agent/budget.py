@@ -159,6 +159,37 @@ class RequestBudget:
                 f"de hoy para {model}. Los 503 de sobrecarga tambien cuentan."
             )
 
+    def refund(self, model: str) -> None:
+        """Deshace un intento anotado que no llego a consumir cupo en Google.
+
+        Existe por un solo motivo y conviene que siga siendo el unico.
+        `record` se llama ANTES de la peticion porque un 503 o un corte por
+        tiempo gastan cupo igual que una respuesta buena, y esa regla es
+        correcta: el intento llego al modelo.  Una credencial rechazada no
+        llega.  Google la para en la puerta con un 401, sin mirar el
+        modelo ni el cupo, asi que anotarla cobra al contador local una
+        peticion que al contador de Google nunca le llego.
+
+        No es una sutileza contable: con un tope de 20 al dia y una
+        medicion que necesita 17, tres claves malas probadas seguidas
+        dejarian la cuenta local diciendo que no cabe una tanda que si
+        cabe.
+
+        Nunca baja de cero.  Un refund sin su record previo seria un error
+        de programacion, pero corromper el diario para dejarlo visible
+        seria peor que absorberlo.
+        """
+        data = self._load()
+        day = data.setdefault(self.today, {})
+        slot = self._slot(model)
+        if day.get(slot, 0) <= 0:
+            return
+        day[slot] -= 1
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps(data, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
     def record(self, model: str) -> None:
         """Anota un intento.  Se llama ANTES de la peticion, no despues.
 
