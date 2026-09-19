@@ -161,6 +161,38 @@
   #formulario label { font-size: 12px; color: var(--tenue); display: flex;
                       flex-direction: column; gap: 3px; }
   #formulario input[type=file] { font: inherit; font-size: 11.5px; color: var(--texto); }
+
+  .huecos { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .hueco { border: 1px dashed var(--borde); border-radius: 9px; padding: 9px;
+           width: 196px; background: var(--panel); }
+  .hueco.lleno { border-style: solid; border-color: rgba(74,222,128,.4); }
+  .hueco h4 { margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase;
+              letter-spacing: .07em; color: var(--tenue); font-weight: 650; }
+  .hueco h4 em { font-style: normal; color: var(--acento); text-transform: none;
+                 letter-spacing: 0; font-weight: 500; }
+  .hueco .lienzo { height: 104px; border-radius: 6px; background: var(--panel-2);
+                   display: flex; align-items: center; justify-content: center;
+                   overflow: hidden; margin-bottom: 7px; }
+  .hueco .lienzo img { max-width: 100%; max-height: 100%; display: block; }
+  .hueco .lienzo span { font-size: 11px; color: var(--tenue); }
+  .hueco .botones { display: flex; gap: 5px; }
+  .mini { font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+          background: transparent; color: var(--tenue); border: 1px solid var(--borde);
+          border-radius: 6px; padding: 4px 8px; flex: 1; }
+  .mini:hover { color: var(--texto); border-color: var(--acento); }
+  .mini.principal { background: var(--acento); color: #0b1020; border-color: var(--acento); }
+
+  #fabrica-aviso { font-size: 11.5px; color: var(--tenue); }
+  #fabrica-aviso a { color: var(--acento); }
+
+  #camara { margin-bottom: 12px; }
+  #camara video { width: 100%; max-width: 560px; border-radius: 9px;
+                  border: 1px solid var(--borde); background: #000; display: block; }
+  #camara .controles { display: flex; gap: 8px; align-items: center;
+                       flex-wrap: wrap; margin-top: 8px; }
+  #camara select { font: inherit; font-size: 12px; background: var(--panel-2);
+                   color: var(--texto); border: 1px solid var(--borde);
+                   border-radius: 6px; padding: 4px 8px; max-width: 260px; }
   .nota { font-size: 12.5px; color: var(--tenue); max-width: 78ch; margin: 0 0 12px; }
   .nota a { color: var(--acento); }
   .cargando { color: var(--tenue); font-size: 13px; }
@@ -427,37 +459,230 @@ async function abre(id) {
 
 /* ---------- la subida: un documento traído por quien mira ---------- */
 
+/* Los tres huecos de una verificación. Se llenan con un fichero o con la
+   cámara, indistintamente: lo que llega al pipeline son bytes de imagen y
+   le da igual de dónde salieron. */
+const HUECOS = [
+  ["anverso", "Anverso", "la cara con la foto y los datos"],
+  ["reverso", "Reverso", "la cara con la MRZ"],
+  ["selfie", "Selfie", "opcional; activa el cotejo facial"],
+];
+const capturas = {};
+
 function abreSubida() {
   pintaLista("__subir__");
   history.replaceState(null, "", "#subir");
   document.getElementById("lateral").innerHTML = "";
+  for (const k of Object.keys(capturas)) delete capturas[k];
+
+  const huecos = HUECOS.map(([id, titulo, pista]) => `
+    <div class="hueco" id="hueco-${id}">
+      <h4>${titulo} <em>${pista}</em></h4>
+      <div class="lienzo" id="lienzo-${id}"><span>vacío</span></div>
+      <div class="botones">
+        <button type="button" class="mini" onclick="abreCamara('${id}')">Cámara</button>
+        <button type="button" class="mini" onclick="document.getElementById('f-${id}').click()">Fichero</button>
+      </div>
+      <input type="file" id="f-${id}" accept="image/*" hidden
+             onchange="tomaFichero('${id}', this)">
+    </div>`).join("");
+
   document.getElementById("panel").innerHTML = `
-    <h3 style="margin-top:0">Tu propio documento</h3>
+    <h3 style="margin-top:0">Una verificación de verdad</h3>
     <p class="nota">
-      Medir es gratis y se puede repetir: el OCR, los dígitos de control de la MRZ,
-      los cotejos y la nitidez son código normal. Preguntarle al agente sí cuesta
-      una petición, así que va aparte y te dice antes lo que gasta.
-      ¿No tienes una cédula a mano? Descarga un par sintético, cámbiale una letra
-      al apellido en cualquier editor y súbelo:
-      <a href="/demo/casos/legitimo-torcido/imagen/anverso">anverso</a> &middot;
-      <a href="/demo/casos/legitimo-torcido/imagen/reverso">reverso</a>
+      Pon las dos caras del documento y, si quieres el cotejo facial, una selfie.
+      Cada hueco acepta la cámara o un fichero. <strong>Medir es gratis y se puede
+      repetir</strong>: el OCR, los dígitos de control de la MRZ, los cotejos y la
+      nitidez son código normal. Preguntarle al agente sí cuesta una petición, y va
+      aparte.
     </p>
-    <form id="formulario" onsubmit="return medir(event)">
-      <label>Anverso <input type="file" name="anverso" accept="image/*" required></label>
-      <label>Reverso <input type="file" name="reverso" accept="image/*" required></label>
-      <label>Selfie <small>(opcional; añade la comparación facial)</small>
-             <input type="file" name="selfie" accept="image/*"></label>
-      <button class="accion" type="submit">Medir las señales &mdash; gratis</button>
-    </form>
+    <div class="romper" id="fabrica">
+      <p>
+        <strong>No grabes tu documento real.</strong> Un vídeo se queda en internet
+        para siempre, y ahí saldría tu NUIP, tu fecha de nacimiento y la MRZ entera.
+        Fabrica en su lugar una cédula falsa <em>con tu cara</em>: la identidad es
+        inventada (LAURA WALTEROS, NUIP 1.234.567.890) pero sus dígitos de control
+        cuadran, así que el sistema la lee entera. Imprímela o enséñala en otra
+        pantalla, grábala con la cámara, y el cotejo facial contra tu selfie
+        funciona de verdad porque la cara sí es la tuya.
+      </p>
+      <div class="barra" style="margin:0;padding:0;border:0">
+        <button type="button" class="accion" onclick="document.getElementById('f-retrato').click()">
+          Fabricar con mi foto
+        </button>
+        <button type="button" class="accion flojo" onclick="fabricar(null)">
+          Fabricar sin retrato
+        </button>
+        <input type="file" id="f-retrato" accept="image/*" hidden
+               onchange="fabricar(this.files[0])">
+        <span id="fabrica-aviso"></span>
+      </div>
+    </div>
+    <div id="camara" hidden>
+      <video id="visor" playsinline muted autoplay></video>
+      <div class="controles">
+        <button type="button" class="accion" onclick="capturar()">Capturar</button>
+        <button type="button" class="mini" style="flex:0" onclick="cierraCamara()">Cerrar</button>
+        <select id="dispositivos" onchange="abreCamara(huecoActivo, this.value)"></select>
+        <span id="camara-aviso" class="esperado"></span>
+      </div>
+    </div>
+    <div class="huecos">${huecos}</div>
+    <button class="accion" id="boton-medir" onclick="medir(event)" disabled>
+      Medir las señales &mdash; gratis
+    </button>
     <div id="resultado"></div>`;
+  revisaHuecos();
+}
+
+/* Fabrica un documento falso y coherente para poder grabarlo sin exponer
+   uno real. Llena los dos huecos del documento y deja el de la selfie
+   libre, que es el orden en que se hace una verificacion de verdad. */
+async function fabricar(retrato) {
+  const aviso = document.getElementById("fabrica-aviso");
+  aviso.textContent = "fabricando…";
+
+  const datos = new FormData();
+  if (retrato) datos.append("retrato", retrato, retrato.name || "retrato.jpg");
+  const respuesta = await fetch("/demo/cedula", { method: "POST", body: datos });
+  if (!respuesta.ok) {
+    const cuerpo = await respuesta.json().catch(() => ({}));
+    aviso.textContent = cuerpo.detail || "no se pudo fabricar";
+    return;
+  }
+  const d = await respuesta.json();
+
+  for (const cara of ["anverso", "reverso"]) {
+    const imagen = await (await fetch(d.imagenes[cara])).blob();
+    pintaHueco(cara, imagen);
+  }
+  aviso.innerHTML = `${d.identidad}${d.con_retrato ? " · con tu cara" : " · sin retrato, no habrá cotejo facial"}
+    &middot; <a href="${d.imagenes.anverso}" download="cedula-anverso.png">descargar anverso</a>
+    &middot; <a href="${d.imagenes.reverso}" download="cedula-reverso.png">descargar reverso</a>`;
+}
+
+/* ---------- la cámara ---------- */
+
+let flujo = null;
+let huecoActivo = null;
+
+function revisaHuecos() {
+  const boton = document.getElementById("boton-medir");
+  if (boton) boton.disabled = !(capturas.anverso && capturas.reverso);
+}
+
+function pintaHueco(id, blob) {
+  capturas[id] = blob;
+  const lienzo = document.getElementById("lienzo-" + id);
+  lienzo.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="${id}">`;
+  document.getElementById("hueco-" + id).classList.add("lleno");
+  revisaHuecos();
+}
+
+function tomaFichero(id, input) {
+  if (input.files && input.files[0]) pintaHueco(id, input.files[0]);
+}
+
+async function abreCamara(id, dispositivo) {
+  huecoActivo = id;
+  const panel = document.getElementById("camara");
+  const aviso = document.getElementById("camara-aviso");
+  panel.hidden = false;
+  aviso.textContent = "pidiendo permiso a la cámara…";
+
+  cierraFlujo();
+  try {
+    // Se pide la mayor resolución que dé la cámara: el OCR y los dígitos
+    // de control de la MRZ viven o mueren por los píxeles que llegan, y
+    // una captura a 640x480 no deja leer una MRZ ni con buena luz.
+    flujo = await navigator.mediaDevices.getUserMedia({
+      video: dispositivo
+        ? { deviceId: { exact: dispositivo } }
+        : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
+  } catch (error) {
+    // El fallo típico no es que no haya cámara, es que la página no está
+    // en un contexto seguro. getUserMedia solo existe en https o en
+    // localhost, así que abrir la pantalla por la IP de la red la deja
+    // muda sin decir por qué.
+    panel.hidden = true;
+    document.getElementById("resultado").innerHTML = `
+      <div class="error">
+        No se pudo abrir la cámara (${error.name}).
+        ${location.hostname === "localhost" || location.hostname === "127.0.0.1"
+          ? "Revisa que el navegador tenga permiso y que no la esté usando otro programa."
+          : `<b>La página no está en localhost.</b> El navegador solo da la cámara
+             en https o en localhost; por la IP de la red la bloquea sin preguntar.
+             Abre <code>http://localhost:8000/</code>.`}
+      </div>`;
+    return;
+  }
+
+  const visor = document.getElementById("visor");
+  visor.srcObject = flujo;
+  const pista = flujo.getVideoTracks()[0];
+  const ajustes = pista.getSettings();
+  aviso.textContent = `capturando para ${id} · ${ajustes.width}×${ajustes.height}`;
+  await listaDeCamaras(ajustes.deviceId);
+}
+
+async function listaDeCamaras(actual) {
+  // enumerateDevices no da las etiquetas hasta que se ha concedido el
+  // permiso, así que esto se llama DESPUÉS de getUserMedia y no antes.
+  const select = document.getElementById("dispositivos");
+  const dispositivos = (await navigator.mediaDevices.enumerateDevices())
+    .filter(d => d.kind === "videoinput");
+  select.hidden = dispositivos.length < 2;
+  select.innerHTML = dispositivos.map((d, i) =>
+    `<option value="${d.deviceId}" ${d.deviceId === actual ? "selected" : ""}>
+       ${d.label || "cámara " + (i + 1)}</option>`).join("");
+}
+
+function capturar() {
+  const visor = document.getElementById("visor");
+  if (!visor.videoWidth) return;
+  const lienzo = document.createElement("canvas");
+  lienzo.width = visor.videoWidth;
+  lienzo.height = visor.videoHeight;
+  lienzo.getContext("2d").drawImage(visor, 0, 0);
+  // 0.95 y no 0.8: lo que se captura va a un OCR, y los artefactos del
+  // JPEG se comen justamente los bordes de las letras pequeñas.
+  lienzo.toBlob(blob => {
+    pintaHueco(huecoActivo, blob);
+    const siguiente = HUECOS.map(h => h[0]).find(id => !capturas[id]);
+    if (siguiente) {
+      huecoActivo = siguiente;
+      document.getElementById("camara-aviso").textContent =
+        `capturado. ahora apunta para ${siguiente}`;
+    } else {
+      cierraCamara();
+    }
+  }, "image/jpeg", 0.95);
+}
+
+function cierraFlujo() {
+  if (flujo) {
+    flujo.getTracks().forEach(p => p.stop());
+    flujo = null;
+  }
+}
+
+function cierraCamara() {
+  cierraFlujo();
+  const panel = document.getElementById("camara");
+  if (panel) panel.hidden = true;
 }
 
 async function medir(evento) {
-  evento.preventDefault();
+  if (evento) evento.preventDefault();
+  cierraCamara();
   const salida = document.getElementById("resultado");
   salida.innerHTML = '<p class="cargando">Leyendo el documento: OCR, MRZ, cotejos, nitidez y caras…</p>';
 
-  const datos = new FormData(document.getElementById("formulario"));
+  const datos = new FormData();
+  for (const [id] of HUECOS) {
+    if (capturas[id]) datos.append(id, capturas[id], id + ".jpg");
+  }
   const respuesta = await fetch("/demo/medir", { method: "POST", body: datos });
   if (!respuesta.ok) {
     const cuerpo = await respuesta.json().catch(() => ({}));
