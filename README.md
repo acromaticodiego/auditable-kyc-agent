@@ -7,25 +7,23 @@ Un usuario sube la foto de su cédula y una selfie. Un agente de IA decide
 reenvío**, razonando sobre varias señales a la vez y explicando la decisión
 con fundamentos que citan la señal concreta que los sostiene.
 
-> **Estado: en construcción.** El sistema funciona de punta a punta —
-> `POST /verificaciones` toma las dos caras del documento y una selfie,
-> mide 28 señales deterministas, el agente decide citando las que le
-> pesaron y cada cita se contrasta contra el valor real antes de quedar
-> registrada. Están medidos el OCR, la MRZ, la señal facial y una línea
-> base de reglas fijas.
+> Sobre el **conjunto reservado** —14 casos que nunca participaron en
+> ajustar el prompt ni un solo umbral, medidos **una sola vez**— el agente
+> acierta **13 de 14** frente a los **11 de 14** de una línea base de reglas
+> fijas sobre esos mismos casos, con **49 de 49 citas verificadas** y sin
+> callarse ni una señal adversa.
 >
-> Sobre calibración, el agente saca **12/13** frente a los **10/13** de una
-> línea base de reglas fijas, con **42 de 42 citas verificadas** y ninguna
-> señal adversa callada. Ese número es de calibración y no es el que se
-> publica.
+> Ese es el número del proyecto. Todo lo demás de este README lo sostiene o
+> lo matiza.
 >
-> **La medición del conjunto reservado está a medias.** Van 10 de sus 14
-> casos; los otros 4 no llegaron a medirse porque el proveedor devolvió 503
-> en dos de cada tres peticiones y se agotó el cupo del día. Lo medido no se
-> publica todavía: diez casos elegidos por cuáles sobrevivieron a una caída
-> no son una muestra de nada. Las respuestas obtenidas están en caché y el
-> prompt queda congelado desde ahora, así que completar los cuatro que
-> faltan da el mismo número que si hubiera salido de una sentada.
+> El sistema funciona de punta a punta: `POST /verificaciones` toma las dos
+> caras del documento y una selfie, mide 28 señales deterministas, el agente
+> decide citando las que le pesaron y cada cita se contrasta contra el valor
+> real antes de quedar registrada.
+>
+> **La muestra es pequeña y sintética**, de una sola identidad. Catorce casos
+> no permiten poner un intervalo de confianza alrededor de ese 13, y nada de
+> lo medido aquí dice qué haría el sistema con documentos reales.
 
 ## La idea
 
@@ -487,6 +485,69 @@ porque el primero se quedó sin cupo; como el 8/12 ya estaba invalidado, no
 había comparación que romper, pero el 12/13 va con el nombre del modelo al
 lado.
 
+### El conjunto reservado — 14 casos, medidos una sola vez
+
+**Este es el número que se publica.** Los otros 13 casos sirvieron para
+ajustar el prompt; estos catorce no se tocaron hasta aquí, y la herramienta
+lo impone: pedirlos sin declarar que es la medición final lanza una
+excepción (ver `app/evaluation/split.py`).
+
+Modelo `gemini-3.5-flash`, 20 de septiembre de 2026. Las catorce vueltas
+terminaron en decisión: ninguna se perdió por un fallo del proveedor.
+
+| | |
+|---|---|
+| **Agente** | **13/14** |
+| Línea base de reglas fijas, **los mismos 14 casos** | 11/14 |
+| Explicaciones fieles | **14/14** |
+| Explicaciones completas | **14/14** |
+| Citas verificadas una a una | **49/49 correctas** |
+
+Siete de los catorce tenían alguna señal adversa que citar, así que la
+completitud perfecta no sale de un conjunto fácil.
+
+#### El único fallo, y por qué importa que sea ese
+
+`ambiguo-sexo-no-coincide`. Se esperaba **escalar a un humano** y el agente
+**rechazó**:
+
+> *«Se rechaza la solicitud debido a una contradicción insalvable en el campo
+> de sexo entre el anverso (M) y la MRZ (F) en un documento con excelente
+> calidad de captura, lo que evidencia manipulación.»*
+
+Es el **gemelo exacto** del único fallo de calibración,
+`ambiguo-apellido-difiere-una-letra`. Los dos son el mismo problema: un solo
+campo contradice, todo lo demás cuadra, y ese campo **no entra en ningún
+dígito de control de la MRZ**, así que la aritmética no puede zanjar la duda.
+En los dos, el agente rechaza donde la etiqueta dice escalar, y en los dos lo
+argumenta igual: la captura es buena, luego el OCR no es la explicación.
+
+Eso no es ruido, es un criterio. El modelo es **sistemáticamente más tajante
+que la etiqueta ante una contradicción aislada**, y lo es en las dos mitades
+de la partición, que se midieron con semanas de diferencia.
+
+Que además sea del modelo y no del prompt está comprobado: ante ese mismo
+prompt y esas mismas señales, `gemini-3.1-flash-lite` **sí escala** en el caso
+del apellido (ver el apartado siguiente). Parte de lo que este proyecto llama
+«acierto del agente» es del modelo que se eligió.
+
+**Esto se predijo antes de medir.** El caso del apellido apareció en
+calibración y quedó anotado que su gemelo estaba en el reservado, junto con la
+decisión de no tocar ninguna de las dos etiquetas: cambiarlas después de haber
+visto la calibración habría sido elegir el corte sobre los datos que luego lo
+juzgan.
+
+#### Qué no dice este número
+
+No dice que el sistema acierte el 93 % de las veces. Dice que acertó 13 de 14
+casos sintéticos construidos a mano, de **una sola identidad**, en una única
+ejecución. Con catorce casos, un acierto más o menos mueve el resultado siete
+puntos.
+
+Lo que sí soporta es la comparación: **el agente y la línea base vieron
+exactamente los mismos catorce casos**, y el agente saca dos más. Esa
+diferencia es lo que el proyecto quería medir.
+
 ### El mismo prompt, dos modelos, decisiones distintas
 
 Todo este README mide «el agente» como si fuera una cosa, y no lo es: el
@@ -725,12 +786,29 @@ depender de acordarse.
 
 ## Limitaciones
 
-Esta sección crecerá conforme haya resultados que la llenen. Hoy:
+Esta sección se poda cuando una entrada deja de ser cierta: una limitación
+que ya no lo es, dejada ahí, desmiente al resto del documento. Hoy:
+
+- **Catorce casos no permiten un intervalo de confianza.** El 13/14 del
+  reservado es un recuento, no una tasa de acierto. Un caso más o menos
+  mueve el resultado siete puntos, y no hay nada aquí que diga cómo se
+  comportaría sobre ciento cuarenta.
+- **Todo el conjunto es de una sola identidad sintética.** Ninguna medida
+  hecha sobre él dice nada sobre documentos reales, ni sobre otras
+  identidades, ni sobre otros formatos.
+- **El reservado ya se gastó.** A partir de ahora, cualquier cambio en el
+  prompt o en los umbrales se mide sobre datos que participaron en
+  elegirlos, salvo que el catálogo crezca con casos nuevos que nadie haya
+  visto.
+- **El único fallo es sistemático y sigue sin resolverse.** Ante una
+  contradicción aislada en un campo que ningún dígito de control ampara, el
+  agente rechaza donde la etiqueta dice escalar. Pasó en las dos mitades de
+  la partición. No está decidido si la etiqueta es correcta o si lo es el
+  modelo; lo que está decidido es no tocarla después de haber visto los
+  datos.
 
 - Un solo tipo de documento (cédula colombiana digital de policarbonato).
   No hay nada que sugiera que generalice a otros formatos.
-- El conjunto de evaluación será mayoritariamente sintético. Los
-  documentos reales usados para calibrar el OCR no se publican.
 - La sonda se completó con `gemini-3.1-flash-lite` porque el cupo de
   `gemini-3.5-flash` ya estaba agotado. Para una sonda de contrato da
   igual, pero **ninguna medición de acierto podrá mezclar modelos**.
@@ -741,20 +819,12 @@ Esta sección crecerá conforme haya resultados que la llenen. Hoy:
 - Los 27 casos son variantes de **una sola identidad sintética**, sin una
   foto real de por medio. Ninguna medida hecha sobre ellos dice nada sobre
   documentos reales.
-- El conjunto vivió 18 casos **sin un solo caso de escalado a revisión
-  humana**, midiendo un sistema de tres salidas y llamándolo de cuatro.
 - La partición está desbalanceada: 3 fraudes en calibración y 5 en el
   reservado, y el escalado a revisión humana cae 2 contra 1. El hash no
   reparte fino con tan pocos casos; se corrige creciendo el catálogo, no
   tocando la partición.
-- El retrato es un marcador, no una cara. Hasta que haya fotos reales, la
-  similitud facial no existe como señal.
 - La API rechaza modelos que su propio `ListModels` sigue listando, de
   modo que elegir modelo automáticamente no es fiable.
-- **La medición de calibración se hizo con `gemini-3.1-flash-lite`, que no
-  es el modelo configurado** (`gemini-3.5-flash`). Se llegó a él por
-  descarte: 3.5 y 3.8 sin cupo, 3.7 devolviendo 503. Comparar ese 8/12 con
-  una medición futura hecha con otro modelo sería comparar dos sistemas.
 - **El endpoint no se ha ejercitado en vivo con una respuesta buena del
   modelo.** Contra el servidor levantado sí se comprobó el camino completo
   —subida, OCR, agente, escritura y lectura del registro— pero el agente
