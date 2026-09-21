@@ -608,8 +608,28 @@ async def fabricar_cedula(
     verdad porque la cara si es la misma. Lo unico inventado es la
     identidad, que es justo lo que no debe salir en un video.
 
-    Los datos son los mismos de siempre, los del catalogo: LAURA WALTEROS,
-    NUIP 1.234.567.890. Nadie los va a confundir con los de una persona.
+    Los datos son los del catalogo -NUIP 1.234.567.890, que nadie va a
+    confundir con el de una persona- con el nombre y el sexo cambiados a
+    CARLOS WALTEROS, sexo M.
+
+    Ese cambio es de presentacion y no de logica. El cotejo facial compara
+    la selfie contra **el retrato impreso en el documento**, nunca contra el
+    campo de sexo, y aqui no hay ninguna senal que infiera el genero de una
+    cara: hacerlo rechazaria a personas trans y no binarias con documentos
+    validos, que es discriminacion y no una comprobacion. El campo `sex`
+    solo se contrasta anverso <-> MRZ, que es donde delata una manipulacion.
+    Una cedula con sexo F y una selfie de un hombre se aprueba, y esta bien
+    aprobada.
+
+    Pero quien mira una demostracion de cincuenta segundos sin audio no sabe
+    nada de eso: ve un documento a nombre de LAURA, una cara de hombre y un
+    APRUEBA en verde, y lo lee como un fallo. Por eso la identidad de la
+    demostracion es masculina.
+
+    El cambio vive **solo aqui**. La identidad del catalogo no se toca:
+    los 27 casos de evaluacion siguen siendo los de LAURA WALTEROS, y el
+    13/14 del conjunto reservado se midio sobre esos y sigue describiendo
+    el mismo sistema.
 
     Sin retrato, el hueco lleva el marcador gris de siempre y no hay cotejo
     facial posible: el detector no encuentra ninguna cara en el documento y
@@ -621,7 +641,7 @@ async def fabricar_cedula(
         if contenido:
             imagen = _abrir(retrato, contenido, "retrato")
 
-    datos = person()
+    datos = person().with_changes(given_names="CARLOS", sex="M")
     anverso = render_front(datos, portrait=imagen)
     reverso = render_back(datos)
 
